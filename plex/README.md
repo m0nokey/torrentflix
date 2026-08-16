@@ -21,7 +21,7 @@ chmod +x run.sh
 ./run.sh
 ```
 
-The script supports Linux and installs the runnable Compose project in `/opt/plex`. It asks for an optional claim token and media directory. The default media directory is `/mnt/plexmedia`. macOS mode in Torrentflix is Deluge-only.
+The script installs the runnable Compose project in `/opt/plex` and asks for an optional claim token and media directory. The default media directory is `/mnt/plexmedia`.
 
 Manual startup:
 

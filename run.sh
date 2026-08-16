@@ -24,10 +24,6 @@ clear_terminal() {
 
 run_plex() {
     PROJECT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-    [ "$HOST_OS" != "Darwin" ] || {
-        echo "[!] Plex mode is supported on Linux only. Use Deluge mode 3 on macOS."
-        exit 1
-    }
     PLEX_IMAGE="plexinc/pms-docker:1.43.3.10861-07dfddaeb@sha256:5bc1d13f48da6366f46aaf2a3ce1a6292897eadc1f8efcbbd7321d30e94f2ed4"
     INSTALL_ROOT="/opt/plex"
     COMPOSE_FILE="$INSTALL_ROOT/compose.yml"
@@ -536,14 +532,19 @@ printf '%s%s%s\n' "$COLOR_TEXT" "What would you like to install?" "$COLOR_RESET"
 echo
 printf '%s1.%s %sDeluge%s\n' "$COLOR_LINE" "$COLOR_RESET" "$COLOR_TEXT" "$COLOR_RESET"
 printf '   Download files with magnet links or torrent files.\n'
-printf '%s2.%s %sPlex (Linux only)%s\n' "$COLOR_LINE" "$COLOR_RESET" "$COLOR_TEXT" "$COLOR_RESET"
-printf '   Stream your media library on your server.\n'
+if [ "$HOST_OS" != "Darwin" ]; then
+    printf '%s2.%s %sPlex%s\n' "$COLOR_LINE" "$COLOR_RESET" "$COLOR_TEXT" "$COLOR_RESET"
+    printf '   Stream your media library on your server.\n'
+fi
 echo
 read -r -p "?: " SERVICE
 SERVICE="${SERVICE:-1}"
 
 case "$SERVICE" in
     1) run_deluge ;;
-    2) run_plex ;;
+    2)
+        [ "$HOST_OS" != "Darwin" ] || { echo "[!] Choose Deluge" >&2; exit 1; }
+        run_plex
+        ;;
     *) echo "[!] Choose 1 or 2" >&2; exit 1 ;;
 esac
