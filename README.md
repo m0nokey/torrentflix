@@ -53,7 +53,7 @@ Click a preview to open the full-size image.
 
 ## Quick start
 
-Requirements: Linux, Docker Engine with the Compose plugin, `curl`, `tar` and `openssl`.
+Requirements: Linux or macOS with Docker Engine/Docker Desktop and the Compose plugin, plus `curl`, `tar` and `openssl`.
 
 ```bash
 cd deluge
@@ -61,14 +61,15 @@ chmod +x run.sh
 ./run.sh
 ```
 
-The installer asks where downloads should be stored. The default is `/mnt/downloads`; the directory is created automatically if it does not exist.
+The installer asks where downloads should be stored. The default is `/mnt/downloads` on Linux and `$HOME/Downloads/deluge/downloads` on macOS; the directory is created automatically if it does not exist.
 
-The repository is used as the source for installation. The installer copies the complete runnable Deluge project into `/opt/deluge`: Compose, Dockerfile, downloaded theme, Nginx files, configuration, generated environment file and password. The installer itself remains in the repository; the installed project is managed with absolute paths.
+The repository is used as the source for installation. On Linux, the installer copies the runnable project into `/opt/deluge`; on macOS, it uses `$HOME/Downloads/deluge`. The installer itself remains in the repository; the installed project is managed with absolute paths.
 
 The installer also asks for a deployment mode:
 
 1. **VPS + bundled Nginx** — starts Deluge and the included Nginx container in one Compose project, then obtains a Let's Encrypt certificate automatically. A public domain is required.
 2. **LAN/direct access** — starts Deluge only. No Nginx and no domain are required; access the WebUI directly on port `8112`. If you already run a reverse proxy, configure it yourself against the Deluge port.
+3. **macOS/Docker Desktop** — runs without root access, a domain or Nginx. Project files and downloads are stored under `$HOME/Downloads/deluge`; the WebUI is available at `http://localhost:8112`.
 
 In VPS mode, the generated Nginx configuration is placed under `/opt/deluge/nginx/conf.d.runtime/`. The repository checkout is not required for day-to-day operation after installation.
 
@@ -84,12 +85,11 @@ For LAN/direct mode, open the WebUI directly:
 http://SERVER_IP:8112
 ```
 
-For existing-Nginx mode, copy or include the generated configuration in your existing Nginx setup. SSL certificates remain managed by that existing Nginx.
-
 After installation, the WebUI password is available in:
 
 ```text
-/opt/deluge/secrets/webui.password
+/opt/deluge/secrets/webui.password       # Linux
+$HOME/Downloads/deluge/secrets/webui.password  # macOS
 ```
 
 Manage the service with:
@@ -108,6 +108,14 @@ VPS + bundled Nginx mode:
 docker compose --env-file /opt/deluge/.env -f /opt/deluge/compose.vps.yml ps
 docker compose --env-file /opt/deluge/.env -f /opt/deluge/compose.vps.yml logs -f
 docker compose --env-file /opt/deluge/.env -f /opt/deluge/compose.vps.yml down
+```
+
+macOS/Docker Desktop mode:
+
+```bash
+DELUGE_ROOT="$HOME/Downloads/deluge"
+docker compose --env-file "$DELUGE_ROOT/.env" -f "$DELUGE_ROOT/compose.yml" ps
+docker compose --env-file "$DELUGE_ROOT/.env" -f "$DELUGE_ROOT/compose.yml" down
 ```
 
 ## Storage layout
@@ -246,7 +254,7 @@ Port `6881` is used for incoming BitTorrent connections. If incoming connections
 
 The directories `config/`, `secrets/`, `.env` and the downloaded theme are excluded from Git. Never commit `secrets/`.
 
-In VPS mode, `/opt/deluge/compose.vps.yml` runs Deluge and the bundled Nginx together. Its named ACME volume is created automatically by Compose as `torrentflix_nginx_acme_state`. In LAN mode, no Nginx files are installed. If you use your own reverse proxy, configure it independently and proxy to the Deluge WebUI port.
+In VPS mode, `/opt/deluge/compose.vps.yml` runs Deluge and the bundled Nginx together. Its named ACME volume is created automatically by Compose as `torrentflix_nginx_acme_state`. In LAN and macOS modes, no Nginx files are installed. If you use your own reverse proxy, configure it independently and proxy to the Deluge WebUI port.
 
 ## Updating
 

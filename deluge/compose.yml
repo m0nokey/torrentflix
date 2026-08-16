@@ -16,7 +16,7 @@ services:
       - ${DELUGE_ROOT:-/opt/deluge}/config:/config
       - ${DOWNLOAD_DIR:-/mnt/downloads}:/downloads
     ports:
-      - "${WEB_PORT:-8112}:8112"
+      - "${WEB_BIND_IP:-0.0.0.0}:${WEB_PORT:-8112}:8112"
       - "${TORRENT_PORT:-6881}:6881"
       - "${TORRENT_PORT:-6881}:6881/udp"
     read_only: true

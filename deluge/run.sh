@@ -2,16 +2,7 @@
 set -euo pipefail
 
 PROJECT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-INSTALL_ROOT="/opt/deluge"
 SOURCE_NGINX_DIR="$PROJECT_DIR/nginx"
-NGINX_DIR="$INSTALL_ROOT/nginx"
-CONFIG_DIR="$INSTALL_ROOT/config"
-THEME_DIR="$INSTALL_ROOT/theme"
-SECRETS_DIR="$INSTALL_ROOT/secrets"
-PASSWORD_FILE="$SECRETS_DIR/webui.password"
-ENV_FILE="$INSTALL_ROOT/.env"
-NGINX_RUNTIME_CONF="$INSTALL_ROOT/nginx/conf.d.runtime"
-COMPOSE_FILE="$INSTALL_ROOT/compose.yml"
 IMAGE="lscr.io/linuxserver/deluge:2.2.0"
 WEB_DIR="/lsiopy/lib/python3.12/site-packages/deluge/ui/web"
 THEME_URL="https://github.com/joelacus/deluge-web-dark-theme/raw/main/deluge_web_dark_theme.tar.gz"
@@ -36,10 +27,116 @@ clear_terminal() {
         printf '\033c'
     fi
 }
+compose_is_running() {
+    local compose_file="$1" root="${2%/*}" args=(-f "$1")
+    if [ -f "$root/.env" ]; then
+        args=(--env-file "$root/.env" "${args[@]}")
+    fi
+    [ -n "$(docker compose "${args[@]}" ps -q 2>/dev/null || true)" ]
+}
+stop_compose_stack() {
+    local compose_file="$1" root="${1%/*}" args=(-f "$1")
+    if [ -f "$root/.env" ]; then
+        args=(--env-file "$root/.env" "${args[@]}")
+    fi
+    docker compose "${args[@]}" down --remove-orphans
+}
 command -v docker >/dev/null || die "Docker is required"
 command -v curl >/dev/null || die "curl is required"
 command -v tar >/dev/null || die "tar is required"
 command -v openssl >/dev/null || die "openssl is required"
+
+clear_terminal
+printf '%s%s%s\n' "$COLOR_LINE" "Torrentflix Deluge" "$COLOR_RESET"
+echo
+printf '%s%s%s\n' "$COLOR_TEXT" "Select deployment mode." "$COLOR_RESET"
+echo
+printf '%s%s.%s %s%s%s\n' "$COLOR_LINE" "1" "$COLOR_RESET" "$COLOR_TEXT" "VPS / public HTTPS access" "$COLOR_RESET"
+printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "   Requires a domain pointing to this VPS and open ports 80/443." "$COLOR_RESET"
+printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "   Bundled Nginx obtains and renews the Let's Encrypt certificate." "$COLOR_RESET"
+printf '%s%s.%s %s%s%s\n' "$COLOR_LINE" "2" "$COLOR_RESET" "$COLOR_TEXT" "LAN / local network access" "$COLOR_RESET"
+printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "   No domain and no Nginx required. Open http://SERVER_IP:8112." "$COLOR_RESET"
+printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "   Suitable for a home network or an existing reverse proxy." "$COLOR_RESET"
+printf '%s%s.%s %s%s%s\n' "$COLOR_LINE" "3" "$COLOR_RESET" "$COLOR_TEXT" "macOS / Docker Desktop" "$COLOR_RESET"
+printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "   No root access, domain, or Nginx required. Open http://localhost:8112." "$COLOR_RESET"
+printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "   Project and downloads stay under ~/Downloads/deluge." "$COLOR_RESET"
+echo
+printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "Technical: VPS mode keeps Deluge on 127.0.0.1:8112 and publishes HTTPS through Nginx." "$COLOR_RESET"
+printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "           LAN mode publishes Deluge WebUI directly on port 8112." "$COLOR_RESET"
+printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "           macOS mode binds WebUI to 127.0.0.1 and uses Docker Desktop." "$COLOR_RESET"
+echo
+read -r -p "?: " DEPLOYMENT_MODE
+DEPLOYMENT_MODE="${DEPLOYMENT_MODE:-1}"
+case "$DEPLOYMENT_MODE" in
+    1|2|3) ;;
+    *) die "Choose 1, 2 or 3" ;;
+esac
+
+clear_terminal
+
+if [ "$DEPLOYMENT_MODE" = 3 ]; then
+    [ -n "${HOME:-}" ] || die "HOME is not set"
+    INSTALL_ROOT="$HOME/Downloads/deluge"
+    DEFAULT_DOWNLOAD_DIR="$INSTALL_ROOT/downloads"
+    WEB_BIND_IP="127.0.0.1"
+else
+    INSTALL_ROOT="/opt/deluge"
+    DEFAULT_DOWNLOAD_DIR="/mnt/downloads"
+    WEB_BIND_IP="0.0.0.0"
+fi
+
+NGINX_DIR="$INSTALL_ROOT/nginx"
+CONFIG_DIR="$INSTALL_ROOT/config"
+THEME_DIR="$INSTALL_ROOT/theme"
+SECRETS_DIR="$INSTALL_ROOT/secrets"
+PASSWORD_FILE="$SECRETS_DIR/webui.password"
+ENV_FILE="$INSTALL_ROOT/.env"
+NGINX_RUNTIME_CONF="$INSTALL_ROOT/nginx/conf.d.runtime"
+COMPOSE_FILE="$INSTALL_ROOT/compose.yml"
+
+declare -a EXISTING_STACKS=()
+declare -a CANDIDATE_ROOTS=("/opt/deluge")
+if [ -n "${HOME:-}" ]; then
+    CANDIDATE_ROOTS+=("$HOME/Downloads/deluge")
+fi
+
+for candidate_root in "${CANDIDATE_ROOTS[@]}"; do
+    for candidate_file in \
+        "$candidate_root/compose.vps.yml" \
+        "$candidate_root/compose.yml" \
+        "$candidate_root/nginx/compose.yml"
+    do
+        if [ -f "$candidate_file" ] && compose_is_running "$candidate_file"; then
+            EXISTING_STACKS+=("$candidate_file")
+        fi
+    done
+done
+
+if [ "${#EXISTING_STACKS[@]}" -gt 0 ]; then
+    clear_terminal
+    printf '%s%s%s\n' "$COLOR_LINE" "Existing Torrentflix stack detected" "$COLOR_RESET"
+    echo
+    for existing_stack in "${EXISTING_STACKS[@]}"; do
+        printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "   Running: $existing_stack" "$COLOR_RESET"
+    done
+    echo
+    printf '%s%s.%s %s%s%s\n' "$COLOR_LINE" "1" "$COLOR_RESET" "$COLOR_TEXT" "Stop the detected stack and continue" "$COLOR_RESET"
+    printf '%s%s.%s %s%s%s\n' "$COLOR_LINE" "2" "$COLOR_RESET" "$COLOR_TEXT" "Abort installation" "$COLOR_RESET"
+    echo
+    read -r -p "?: " STOP_EXISTING
+    STOP_EXISTING="${STOP_EXISTING:-1}"
+    case "$STOP_EXISTING" in
+        1)
+            clear_terminal
+            for existing_stack in "${EXISTING_STACKS[@]}"; do
+                echo "[+] Stopping $existing_stack..."
+                stop_compose_stack "$existing_stack"
+            done
+            ;;
+        2) exit 0 ;;
+        *) die "Choose 1 or 2" ;;
+    esac
+fi
 
 mkdir -p "$INSTALL_ROOT"
 
@@ -54,30 +151,6 @@ if [ "$PROJECT_DIR/secrets" != "$SECRETS_DIR" ] && [ -f "$PROJECT_DIR/secrets/we
     cp -a "$PROJECT_DIR/secrets/webui.password" "$PASSWORD_FILE"
     chmod 600 "$PASSWORD_FILE"
 fi
-
-clear_terminal
-printf '%s%s%s\n' "$COLOR_LINE" "Torrentflix Deluge" "$COLOR_RESET"
-echo
-printf '%s%s%s\n' "$COLOR_TEXT" "Select deployment mode." "$COLOR_RESET"
-echo
-printf '%s%s.%s %s%s%s\n' "$COLOR_LINE" "1" "$COLOR_RESET" "$COLOR_TEXT" "VPS / public HTTPS access" "$COLOR_RESET"
-printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "   Requires a domain pointing to this VPS and open ports 80/443." "$COLOR_RESET"
-printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "   Bundled Nginx obtains and renews the Let's Encrypt certificate." "$COLOR_RESET"
-printf '%s%s.%s %s%s%s\n' "$COLOR_LINE" "2" "$COLOR_RESET" "$COLOR_TEXT" "LAN / local network access" "$COLOR_RESET"
-printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "   No domain and no Nginx required. Open http://SERVER_IP:8112." "$COLOR_RESET"
-printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "   Suitable for a home network or an existing reverse proxy." "$COLOR_RESET"
-echo
-printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "Technical: VPS mode keeps Deluge on 127.0.0.1:8112 and publishes HTTPS through Nginx." "$COLOR_RESET"
-printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "           LAN mode publishes Deluge WebUI directly on port 8112." "$COLOR_RESET"
-echo
-read -r -p "?: " DEPLOYMENT_MODE
-DEPLOYMENT_MODE="${DEPLOYMENT_MODE:-1}"
-case "$DEPLOYMENT_MODE" in
-    1|2) ;;
-    *) die "Choose 1 or 2" ;;
-esac
-
-clear_terminal
 
 DOMAIN=""
 WWW_DOMAIN=""
@@ -95,13 +168,6 @@ cp "$PROJECT_DIR/Dockerfile" "$INSTALL_ROOT/Dockerfile"
 cp "$PROJECT_DIR/compose.yml" "$INSTALL_ROOT/compose.yml"
 cp "$PROJECT_DIR/.dockerignore" "$INSTALL_ROOT/.dockerignore"
 
-# Stop an older deployment before replacing its runtime files.
-if [ -f "$INSTALL_ROOT/compose.vps.yml" ]; then
-    docker compose --env-file "$ENV_FILE" -f "$INSTALL_ROOT/compose.vps.yml" down --remove-orphans || true
-fi
-if [ -f "$NGINX_DIR/compose.yml" ] && [ -f "$NGINX_DIR/.env" ]; then
-    docker compose --env-file "$NGINX_DIR/.env" -f "$NGINX_DIR/compose.yml" down --remove-orphans || true
-fi
 rm -rf "$NGINX_DIR" "$INSTALL_ROOT/compose.vps.yml"
 
 if [ "$DEPLOYMENT_MODE" = 1 ]; then
@@ -114,7 +180,6 @@ if [ "$DEPLOYMENT_MODE" = 1 ]; then
 fi
 
 mkdir -p "$CONFIG_DIR" "$SECRETS_DIR"
-DEFAULT_DOWNLOAD_DIR="/mnt/downloads"
 read -r -p "Download directory [$DEFAULT_DOWNLOAD_DIR]: " DOWNLOAD_DIR_INPUT
 DOWNLOAD_DIR="${DOWNLOAD_DIR_INPUT:-$DEFAULT_DOWNLOAD_DIR}"
 case "$DOWNLOAD_DIR" in
@@ -133,6 +198,7 @@ DELUGE_ROOT=$INSTALL_ROOT
 PUID=$PUID
 PGID=$PGID
 WEB_PORT=8112
+WEB_BIND_IP=$WEB_BIND_IP
 DEPLOYMENT_MODE=$DEPLOYMENT_MODE
 PRIMARY_DOMAIN=$DOMAIN
 WWW_DOMAIN=$WWW_DOMAIN
@@ -221,6 +287,11 @@ if [ "$DEPLOYMENT_MODE" = 2 ]; then
     echo
     echo "Deluge is running in LAN/direct mode."
     echo "WebUI: http://SERVER_IP:8112"
+elif [ "$DEPLOYMENT_MODE" = 3 ]; then
+    WEBUI_URL="http://localhost:8112"
+    echo
+    echo "Deluge is running on macOS through Docker Desktop."
+    echo "WebUI: http://localhost:8112"
 else
     WEBUI_URL="https://$WWW_DOMAIN/deluge/"
     echo
