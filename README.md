@@ -1,10 +1,10 @@
 # Torrentflix
 
-> A self-hosted Docker media stack with Deluge, Plex, NAS storage and secure Nginx HTTPS access.
+> A self-hosted Docker media stack with Deluge, Plex and secure Nginx HTTPS access.
 
 > Download it. Stream it. Own it.
 
-Torrentflix is a self-hosted Docker media stack for running Deluge and Plex with NAS storage, a dark Deluge WebUI theme and secure Nginx HTTPS access.
+Torrentflix is a self-hosted Docker media stack for running Deluge and Plex with a dark Deluge WebUI theme and secure Nginx HTTPS access. NAS storage is supported as an optional backend.
 
 ## Project layout
 
@@ -15,9 +15,14 @@ torrentflix/
 └── README.md
 ```
 
-![Torrentflix Deluge WebUI](deluge_exmpl_1.jpg)
-
-![Torrentflix dark theme](deluge_exmpl_2.jpg)
+<div align="center">
+  <a href="docs/images/deluge_exmpl_1.jpg">
+    <img src="docs/images/deluge_exmpl_1.jpg" alt="Torrentflix Deluge WebUI" width="420">
+  </a>
+  <a href="docs/images/deluge_exmpl_2.jpg">
+    <img src="docs/images/deluge_exmpl_2.jpg" alt="Torrentflix dark theme" width="420">
+  </a>
+</div>
 
 The project uses the official LinuxServer.io image, `lscr.io/linuxserver/deluge:2.2.0`. During the build, the original WebUI assets are preserved and the dark theme is layered on top. Host Python/WebUI directories are not mounted into the running container.
 
