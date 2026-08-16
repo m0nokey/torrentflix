@@ -2,6 +2,7 @@
 set -euo pipefail
 
 PROJECT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+HOST_OS="$(uname -s 2>/dev/null || printf 'unknown')"
 
 if [ -t 1 ]; then
     COLOR_RESET=$'\033[0m'
@@ -23,7 +24,11 @@ clear_terminal() {
 
 run_plex() {
     PROJECT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-    INSTALL_ROOT="/opt/plex"
+    if [ "$HOST_OS" = "Darwin" ]; then
+        INSTALL_ROOT="${TORRENTFLIX_PLEX_ROOT:-$HOME/Downloads/plex}"
+    else
+        INSTALL_ROOT="/opt/plex"
+    fi
     COMPOSE_FILE="$INSTALL_ROOT/compose.yml"
     ENV_FILE="$INSTALL_ROOT/.env"
 
@@ -45,7 +50,11 @@ run_plex() {
     printf '%s%s%s\n' "$COLOR_LINE" "Torrentflix Plex" "$COLOR_RESET"
     echo
 
-    DEFAULT_MEDIA="/mnt/plexmedia"
+    if [ "$HOST_OS" = "Darwin" ]; then
+        DEFAULT_MEDIA="${TORRENTFLIX_PLEX_MEDIA:-$INSTALL_ROOT/media}"
+    else
+        DEFAULT_MEDIA="/mnt/plexmedia"
+    fi
 
     ROOT="$INSTALL_ROOT"
 
@@ -160,12 +169,21 @@ run_deluge() {
     printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "           LAN mode publishes Deluge WebUI directly on port 8112." "$COLOR_RESET"
     printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "           macOS mode binds WebUI to 127.0.0.1 and uses Docker Desktop." "$COLOR_RESET"
     echo
+    if [ "$HOST_OS" = "Darwin" ]; then
+        DEFAULT_DEPLOYMENT_MODE=3
+    else
+        DEFAULT_DEPLOYMENT_MODE=1
+    fi
     read -r -p "?: " DEPLOYMENT_MODE
-    DEPLOYMENT_MODE="${DEPLOYMENT_MODE:-1}"
+    DEPLOYMENT_MODE="${DEPLOYMENT_MODE:-$DEFAULT_DEPLOYMENT_MODE}"
     case "$DEPLOYMENT_MODE" in
         1|2|3) ;;
         *) die "Choose 1, 2 or 3" ;;
     esac
+
+    if [ "$HOST_OS" = "Darwin" ] && [ "$DEPLOYMENT_MODE" != 3 ]; then
+        die "On macOS choose mode 3 (macOS / Docker Desktop); modes 1 and 2 use /opt/deluge and require Linux permissions."
+    fi
 
     clear_terminal
 
