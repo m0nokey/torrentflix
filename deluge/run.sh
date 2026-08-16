@@ -41,6 +41,20 @@ stop_compose_stack() {
     fi
     docker compose "${args[@]}" down --remove-orphans
 }
+delete_runtime_root() {
+    local root="$1"
+    [ -n "$root" ] || die "Refusing to delete an empty path"
+    [ "$root" != "/" ] || die "Refusing to delete the filesystem root"
+    [ ! -L "$root" ] || die "Refusing to delete a symbolic link: $root"
+    case "$root" in
+        /opt/deluge) ;;
+        "${HOME:-}"/Downloads/deluge) ;;
+        *) die "Refusing to delete an unapproved runtime path: $root" ;;
+    esac
+    [ -f "$root/compose.yml" ] || [ -f "$root/compose.vps.yml" ] || \
+        die "Refusing to delete a directory without a Torrentflix Compose file: $root"
+    rm -rf -- "$root"
+}
 command -v docker >/dev/null || die "Docker is required"
 command -v curl >/dev/null || die "curl is required"
 command -v tar >/dev/null || die "tar is required"
@@ -157,7 +171,7 @@ if [ "${#EXISTING_STACKS[@]}" -gt 0 ]; then
                 stop_compose_stack "$existing_stack" || true
             done
             for existing_root in "${EXISTING_ROOTS[@]}"; do
-                rm -rf "$existing_root"
+                delete_runtime_root "$existing_root"
                 echo "[+] Deleted $existing_root"
             done
             exit 0
