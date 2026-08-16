@@ -15,16 +15,30 @@ torrentflix/
 └── README.md
 ```
 
-<div align="center">
-  <a href="docs/images/deluge_exmpl_1.jpg">
-    <img src="docs/images/deluge_exmpl_1.jpg" alt="Torrentflix Deluge WebUI" width="420">
-  </a>
-  <a href="docs/images/deluge_exmpl_2.jpg">
-    <img src="docs/images/deluge_exmpl_2.jpg" alt="Torrentflix dark theme" width="420">
-  </a>
-</div>
-
 The project uses the official LinuxServer.io image, `lscr.io/linuxserver/deluge:2.2.0`. During the build, the original WebUI assets are preserved and the dark theme is layered on top. Host Python/WebUI directories are not mounted into the running container.
+
+## Screenshots
+
+Click a preview to open the full-size image.
+
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <a href="docs/images/deluge_exmpl_1.jpg">
+        <img src="docs/images/deluge_exmpl_1.jpg" alt="Torrentflix Deluge WebUI" width="300">
+      </a>
+      <br>
+      <sub>Deluge WebUI</sub>
+    </td>
+    <td align="center" width="50%">
+      <a href="docs/images/deluge_exmpl_2.jpg">
+        <img src="docs/images/deluge_exmpl_2.jpg" alt="Torrentflix dark theme" width="300">
+      </a>
+      <br>
+      <sub>Dark theme</sub>
+    </td>
+  </tr>
+</table>
 
 ## Features
 
