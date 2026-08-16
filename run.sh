@@ -8,10 +8,12 @@ if [ -t 1 ]; then
     COLOR_RESET=$'\033[0m'
     COLOR_LINE=$'\033[38;5;117m'
     COLOR_TEXT=$'\033[97m'
+    COLOR_MUTED_ITALIC=$'\033[3;38;5;245m'
 else
     COLOR_RESET=''
     COLOR_LINE=''
     COLOR_TEXT=''
+    COLOR_MUTED_ITALIC=''
 fi
 
 clear_terminal() {
@@ -561,10 +563,10 @@ echo
 printf '%s%s%s\n' "$COLOR_TEXT" "What would you like to install?" "$COLOR_RESET"
 echo
 printf '%s1.%s %sDeluge%s\n' "$COLOR_LINE" "$COLOR_RESET" "$COLOR_TEXT" "$COLOR_RESET"
-printf '   Download files with magnet links or torrent files.\n'
+printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "   Download files with magnet links or torrent files." "$COLOR_RESET"
 if [ "$HOST_OS" != "Darwin" ]; then
     printf '%s2.%s %sPlex%s\n' "$COLOR_LINE" "$COLOR_RESET" "$COLOR_TEXT" "$COLOR_RESET"
-    printf '   Stream your media library on your server.\n'
+    printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "   Stream your media library on your server." "$COLOR_RESET"
 fi
 echo
 read -r -p "?: " SERVICE
