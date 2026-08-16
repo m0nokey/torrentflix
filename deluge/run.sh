@@ -300,12 +300,6 @@ else
 fi
 
 clear_terminal
-
-echo "======================================"
-echo " Torrentflix Deluge installation done"
-echo "======================================"
-echo "Compose source: $INSTALL_ROOT"
-echo "Compose file:   $COMPOSE_FILE"
 echo "Runtime root:   $INSTALL_ROOT"
 echo "WebUI URL:     $WEBUI_URL"
 echo "Password file: $PASSWORD_FILE"
