@@ -57,10 +57,15 @@ printf '%s%s%s\n' "$COLOR_LINE" "Torrentflix Deluge" "$COLOR_RESET"
 echo
 printf '%s%s%s\n' "$COLOR_TEXT" "Select deployment mode." "$COLOR_RESET"
 echo
-printf '%s%s.%s %s%s%s\n' "$COLOR_LINE" "1" "$COLOR_RESET" "$COLOR_TEXT" "VPS deployment" "$COLOR_RESET"
-printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "   Deluge + bundled Nginx + automatic Let's Encrypt certificate" "$COLOR_RESET"
-printf '%s%s.%s %s%s%s\n' "$COLOR_LINE" "2" "$COLOR_RESET" "$COLOR_TEXT" "LAN deployment" "$COLOR_RESET"
-printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "   Deluge only, direct WebUI access, no Nginx" "$COLOR_RESET"
+printf '%s%s.%s %s%s%s\n' "$COLOR_LINE" "1" "$COLOR_RESET" "$COLOR_TEXT" "VPS / public HTTPS access" "$COLOR_RESET"
+printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "   Requires a domain pointing to this VPS and open ports 80/443." "$COLOR_RESET"
+printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "   Bundled Nginx obtains and renews the Let's Encrypt certificate." "$COLOR_RESET"
+printf '%s%s.%s %s%s%s\n' "$COLOR_LINE" "2" "$COLOR_RESET" "$COLOR_TEXT" "LAN / local network access" "$COLOR_RESET"
+printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "   No domain and no Nginx required. Open http://SERVER_IP:8112." "$COLOR_RESET"
+printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "   Suitable for a home network or an existing reverse proxy." "$COLOR_RESET"
+echo
+printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "Technical: VPS mode keeps Deluge on 127.0.0.1:8112 and publishes HTTPS through Nginx." "$COLOR_RESET"
+printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "           LAN mode publishes Deluge WebUI directly on port 8112." "$COLOR_RESET"
 echo
 read -r -p "?: " DEPLOYMENT_MODE
 DEPLOYMENT_MODE="${DEPLOYMENT_MODE:-1}"
@@ -72,7 +77,7 @@ esac
 DOMAIN=""
 WWW_DOMAIN=""
 if [ "$DEPLOYMENT_MODE" = 1 ]; then
-    read -r -p "Public domain [domain.com]: " DOMAIN_INPUT
+    read -r -p "Domain pointing to this VPS [domain.com]: " DOMAIN_INPUT
     DOMAIN="${DOMAIN_INPUT:-domain.com}"
     case "$DOMAIN" in
         ''|*[!A-Za-z0-9.-]*) die "Domain contains unsupported characters" ;;
