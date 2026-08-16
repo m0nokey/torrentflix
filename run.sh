@@ -518,13 +518,27 @@ EOF
     if [ -n "$PEER_PORT" ]; then
         echo "[+] Configuring Deluge inbound peer port..."
         PEER_RESULT="$(rpc '{"method":"core.set_config","params":[{"random_port":false,"listen_ports":[6881,6881]}],"id":4}')"
-        echo "$PEER_RESULT" | grep -q '"result": true' || {
+        echo "$PEER_RESULT" | grep -q '"error": null' || {
             echo "[!] Peer port configuration failed: $PEER_RESULT"
+            exit 1
+        }
+
+        PEER_CONFIG="$(rpc '{"method":"core.get_config_values","params":[["random_port","listen_ports"]],"id":5}')"
+        echo "$PEER_CONFIG" | grep -q '"error": null' || {
+            echo "[!] Peer port verification failed: $PEER_CONFIG"
+            exit 1
+        }
+        echo "$PEER_CONFIG" | grep -Eq '"random_port"[[:space:]]*:[[:space:]]*false' || {
+            echo "[!] Deluge random port setting was not disabled: $PEER_CONFIG"
+            exit 1
+        }
+        echo "$PEER_CONFIG" | grep -Eq '"listen_ports"[[:space:]]*:[[:space:]]*\[[[:space:]]*6881[[:space:]]*,[[:space:]]*6881[[:space:]]*\]' || {
+            echo "[!] Deluge listen ports were not set to 6881: $PEER_CONFIG"
             exit 1
         }
     fi
 
-    THEME_RESULT="$(rpc '{"method":"web.set_theme","params":["dark"],"id":5}')"
+    THEME_RESULT="$(rpc '{"method":"web.set_theme","params":["dark"],"id":6}')"
     echo "$THEME_RESULT" | grep -Eq '"result": true|"error": null' || die "Theme API failed: $THEME_RESULT"
 
     if [ "$DEPLOYMENT_MODE" = 2 ]; then
