@@ -1,0 +1,26 @@
+# Local environment files and secrets
+.env
+**/.env
+secrets/
+**/secrets/
+
+# Runtime application data
+config/
+**/config/
+*.log
+
+# Generated Deluge theme assets
+theme/
+**/theme/
+
+# Generated Nginx runtime files
+nginx/conf.d.runtime/
+nginx/www/
+**/nginx/conf.d.runtime/
+**/nginx/www/
+
+# OS/editor files
+.DS_Store
+**/.DS_Store
+.idea/
+.vscode/

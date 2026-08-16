@@ -1,0 +1,13 @@
+services:
+  plex-server:
+    container_name: plex-server
+    image: plexinc/pms-docker:latest
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ:-UTC}
+      - PLEX_PORT=32401
+    network_mode: host
+    volumes:
+      - ${ROOT:-/opt/plex}/config/plex/db:/config
+      - ${ROOT:-/opt/plex}/config/plex/transcode:/transcode
+      - ${MEDIA_DIR:-/mnt/plexmedia}:/mnt/plexmedia
