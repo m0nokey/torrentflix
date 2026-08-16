@@ -63,7 +63,7 @@ chmod +x run.sh
 
 The installer asks where downloads should be stored. The default is `/mnt/downloads`; the directory is created automatically if it does not exist.
 
-The repository is used as the source for installation. The installer copies the complete runnable Deluge project into `/opt/deluge`: Compose, Dockerfile, downloaded theme, Nginx files, configuration, generated environment file and password. You can manage it directly with absolute paths after installation.
+The repository is used as the source for installation. The installer copies the complete runnable Deluge project into `/opt/deluge`: Compose, Dockerfile, downloaded theme, Nginx files, configuration, generated environment file and password. The installer itself remains in the repository; the installed project is managed with absolute paths.
 
 The installer also asks for a deployment mode:
 

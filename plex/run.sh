@@ -25,8 +25,6 @@ echo "[+] Installing the Compose project into $ROOT..."
 mkdir -p "$ROOT"
 cp "$PROJECT_DIR/compose.yml" "$ROOT/compose.yml"
 cp "$PROJECT_DIR/.env.example" "$ROOT/.env.example"
-cp "$PROJECT_DIR/run.sh" "$ROOT/run.sh"
-chmod 755 "$ROOT/run.sh"
 
 cat > "$ENV_FILE" <<EOF
 ROOT=$ROOT
