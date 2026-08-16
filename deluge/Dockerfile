@@ -27,26 +27,10 @@ RUN cat >> "${WEB_DIR}/themes/css/xtheme-dark.css" <<'EOF'
     background-image: none !important;
 }
 
-/* Deluge 2.2 / Preferences layout fixes */
-/* Keep the lower Queue fields reachable on short screens. */
-body:has(#max_download_speed) .x-window {
-    max-height: calc(100vh - 24px) !important;
-}
-
-body:has(#max_download_speed) .x-window-body {
-    max-height: calc(100vh - 105px) !important;
-    overflow-y: auto !important;
-    overflow-x: hidden !important;
-}
-
-body:has(#max_download_speed) .x-column-inner {
+/* Deluge 2.2 / Preferences layout fix */
+/* ExtJS sets these fieldsets to height: 132px, hiding the lower controls. */
+.x-column-inner .x-fieldset.x-column {
     height: auto !important;
-    min-height: 0 !important;
-    padding-bottom: 18px !important;
-}
-
-body:has(#max_download_speed) .x-fieldset {
-    margin-bottom: 10px !important;
 }
 EOF
 
@@ -57,3 +41,9 @@ RUN chmod -R a+rX \
     "${WEB_DIR}/icons" \
     "${WEB_DIR}/images" \
     "${WEB_DIR}/themes"
+
+# ExtJS requests this transparent spacer even when trigger backgrounds are
+# disabled. Keep it available in custom/theme builds.
+RUN if [ ! -f "${WEB_DIR}/images/s.gif" ]; then \
+        printf '%s' 'R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==' | base64 -d > "${WEB_DIR}/images/s.gif"; \
+    fi
