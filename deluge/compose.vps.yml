@@ -17,8 +17,10 @@ services:
       - ${DOWNLOAD_DIR:-/mnt/downloads}:/downloads
     ports:
       - "127.0.0.1:${WEB_PORT:-8112}:8112"
-      - "${TORRENT_PORT:-6881}:6881"
-      - "${TORRENT_PORT:-6881}:6881/udp"
+
+    expose:
+      - "6881"
+      - "6881/udp"
     read_only: true
     tmpfs:
       - /run:rw,exec,nosuid,nodev,size=16m,mode=0755
