@@ -27,3 +27,11 @@ RUN cat >> "${WEB_DIR}/themes/css/xtheme-dark.css" <<'EOF'
     background-image: none !important;
 }
 EOF
+
+# LinuxServer runs Deluge with the PUID/PGID supplied at runtime. The base
+# image assets may be root-owned with restrictive modes, so keep them readable
+# by the runtime user on both Linux and Docker Desktop/macOS.
+RUN chmod -R a+rX \
+    "${WEB_DIR}/icons" \
+    "${WEB_DIR}/images" \
+    "${WEB_DIR}/themes"
