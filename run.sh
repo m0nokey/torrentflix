@@ -24,12 +24,12 @@ clear_terminal() {
 
 run_plex() {
     PROJECT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+    [ "$HOST_OS" != "Darwin" ] || {
+        echo "[!] Plex mode is supported on Linux only. Use Deluge mode 3 on macOS."
+        exit 1
+    }
     PLEX_IMAGE="plexinc/pms-docker:1.43.3.10861-07dfddaeb@sha256:5bc1d13f48da6366f46aaf2a3ce1a6292897eadc1f8efcbbd7321d30e94f2ed4"
-    if [ "$HOST_OS" = "Darwin" ]; then
-        INSTALL_ROOT="${TORRENTFLIX_PLEX_ROOT:-$HOME/Downloads/plex}"
-    else
-        INSTALL_ROOT="/opt/plex"
-    fi
+    INSTALL_ROOT="/opt/plex"
     COMPOSE_FILE="$INSTALL_ROOT/compose.yml"
     ENV_FILE="$INSTALL_ROOT/.env"
 
@@ -51,11 +51,11 @@ run_plex() {
     printf '%s%s%s\n' "$COLOR_LINE" "Torrentflix Plex" "$COLOR_RESET"
     echo
 
-    if [ "$HOST_OS" = "Darwin" ]; then
-        DEFAULT_MEDIA="${TORRENTFLIX_PLEX_MEDIA:-$INSTALL_ROOT/media}"
-    else
-        DEFAULT_MEDIA="/mnt/plexmedia"
-    fi
+    PLEX_CLAIM=""
+    printf '%sPlex claim token (optional): %s' "$COLOR_LINE" "$COLOR_RESET"
+    read -r PLEX_CLAIM
+
+    DEFAULT_MEDIA="/mnt/plexmedia"
 
     ROOT="$INSTALL_ROOT"
 
@@ -78,6 +78,7 @@ run_plex() {
 ROOT=$ROOT
 TZ=UTC
 MEDIA_DIR=$MEDIA_DIR
+PLEX_CLAIM=$PLEX_CLAIM
 PLEX_IMAGE=$PLEX_IMAGE
 PLEX_MEM_LIMIT=4g
 PLEX_MEM_RESERVATION=512m
@@ -94,6 +95,12 @@ EOF
     echo "WebUI:  http://SERVER_IP:32400/web"
     echo "Media:  $MEDIA_DIR"
     echo "Config: $ROOT/config/plex"
+    if [ "$HOST_OS" != "Darwin" ]; then
+        echo
+        echo "Headless setup (if no claim token was provided):"
+        echo "  ssh -N -L 32400:127.0.0.1:32400 user@SERVER_IP"
+        echo "  Then open http://localhost:32400/web"
+    fi
 }
 
 run_deluge() {
@@ -187,6 +194,7 @@ run_deluge() {
     printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "Technical: VPS mode keeps Deluge:8112 inside Docker and publishes HTTPS through Nginx." "$COLOR_RESET"
     printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "           LAN mode publishes Deluge WebUI directly on port 8112." "$COLOR_RESET"
     printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "           macOS mode binds WebUI to 127.0.0.1 and uses Docker Desktop." "$COLOR_RESET"
+    printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "           Incoming BitTorrent peers are disabled by default; you can enable one host port later." "$COLOR_RESET"
     echo
     if [ "$HOST_OS" = "Darwin" ]; then
         DEFAULT_DEPLOYMENT_MODE=3
@@ -313,14 +321,33 @@ run_deluge() {
     fi
 
     DOMAIN=""
-    WWW_DOMAIN=""
+    HSTS_POLICY="max-age=63072000"
+    PEER_PORTS="[]"
     if [ "$DEPLOYMENT_MODE" = 1 ]; then
-        read -r -p "Domain pointing to this VPS [domain.com]: " DOMAIN_INPUT
-        DOMAIN="${DOMAIN_INPUT:-domain.com}"
+        read -r -p "Hostname for Deluge HTTPS [deluge.example.com]: " DOMAIN_INPUT
+        DOMAIN="${DOMAIN_INPUT:-deluge.example.com}"
         case "$DOMAIN" in
             ''|*[!A-Za-z0-9.-]*) die "Domain contains unsupported characters" ;;
         esac
-        WWW_DOMAIN="www.$DOMAIN"
+        read -r -p "Enable HSTS for subdomains/preload? [y/N]: " HSTS_INPUT
+        case "$HSTS_INPUT" in
+            y|Y|yes|YES) HSTS_POLICY="max-age=63072000; includeSubDomains; preload" ;;
+        esac
+    fi
+
+    read -r -p "Incoming BitTorrent host port (optional, disabled by default): " PEER_PORT
+    if [ -n "$PEER_PORT" ]; then
+        [[ "$PEER_PORT" =~ ^[0-9]+$ ]] || die "Peer port must be numeric"
+        [ "$PEER_PORT" -ge 1 ] && [ "$PEER_PORT" -le 65535 ] || die "Peer port must be between 1 and 65535"
+        [ "$DEPLOYMENT_MODE" = 1 ] || [ "$PEER_PORT" != 8112 ] || die "Peer port cannot be 8112 because that port is used by the WebUI"
+        PEER_PORTS="[\"0.0.0.0:${PEER_PORT}:6881/tcp\",\"0.0.0.0:${PEER_PORT}:6881/udp\"]"
+    fi
+    if [ "$DEPLOYMENT_MODE" = 1 ]; then
+        HOST_PORTS="$PEER_PORTS"
+    elif [ "$PEER_PORTS" = "[]" ]; then
+        HOST_PORTS="[\"${WEB_BIND_IP}:8112:8112\"]"
+    else
+        HOST_PORTS="[\"${WEB_BIND_IP}:8112:8112\",${PEER_PORTS#\[}"
     fi
 
     echo "[+] Installing the required project files into $INSTALL_ROOT..."
@@ -336,7 +363,8 @@ run_deluge() {
         cp "$PROJECT_DIR/deluge/compose.vps.yml" "$COMPOSE_FILE"
         mkdir -p "$NGINX_DIR/conf.d.runtime" "$NGINX_DIR/www"
         cp "$SOURCE_NGINX_DIR/Dockerfile" "$NGINX_DIR/Dockerfile"
-        cp "$SOURCE_NGINX_DIR/nginx.conf" "$NGINX_DIR/nginx.conf"
+        sed "s|__HSTS_POLICY__|$HSTS_POLICY|g" \
+            "$SOURCE_NGINX_DIR/nginx.conf" > "$NGINX_DIR/nginx.conf"
     fi
 
     mkdir -p "$CONFIG_DIR" "$SECRETS_DIR"
@@ -370,7 +398,8 @@ WEB_PORT=8112
 WEB_BIND_IP=$WEB_BIND_IP
 DEPLOYMENT_MODE=$DEPLOYMENT_MODE
 PRIMARY_DOMAIN=$DOMAIN
-WWW_DOMAIN=$WWW_DOMAIN
+HSTS_POLICY=$HSTS_POLICY
+TORRENTFLIX_PORTS=$HOST_PORTS
 EOF
     chmod 600 "$ENV_FILE"
 
@@ -481,10 +510,10 @@ EOF
         echo "Deluge is running on macOS through Docker Desktop."
         echo "WebUI: http://localhost:8112"
     else
-        WEBUI_URL="https://$WWW_DOMAIN/deluge/"
+        WEBUI_URL="https://$DOMAIN/deluge/"
         echo
         echo "Deluge and bundled Nginx are running."
-        echo "URL: https://$WWW_DOMAIN/deluge/"
+        echo "URL: https://$DOMAIN/deluge/"
     fi
 
     clear_terminal
@@ -493,6 +522,11 @@ EOF
     echo "Password file: $PASSWORD_FILE"
     echo "WebUI password: $WEB_PASSWORD"
     echo "Downloads:     $DOWNLOAD_DIR"
+    if [ "$PEER_PORTS" = "[]" ]; then
+        echo "Peer port:     internal only"
+    else
+        echo "Peer port:     $PEER_PORT"
+    fi
 }
 
 clear_terminal
@@ -502,7 +536,7 @@ printf '%s%s%s\n' "$COLOR_TEXT" "What would you like to install?" "$COLOR_RESET"
 echo
 printf '%s1.%s %sDeluge%s\n' "$COLOR_LINE" "$COLOR_RESET" "$COLOR_TEXT" "$COLOR_RESET"
 printf '   Download files with magnet links or torrent files.\n'
-printf '%s2.%s %sPlex%s\n' "$COLOR_LINE" "$COLOR_RESET" "$COLOR_TEXT" "$COLOR_RESET"
+printf '%s2.%s %sPlex (Linux only)%s\n' "$COLOR_LINE" "$COLOR_RESET" "$COLOR_TEXT" "$COLOR_RESET"
 printf '   Stream your media library on your server.\n'
 echo
 read -r -p "?: " SERVICE

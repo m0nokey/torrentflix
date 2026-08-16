@@ -68,6 +68,8 @@ newgrp docker
 docker info
 ```
 
+Important: membership in the `docker` group is effectively root-equivalent on the host. Add only trusted users.
+
 If Docker is not running:
 
 ```bash
@@ -127,7 +129,7 @@ The real terminal menu uses the same Nitka-style colors as the rest of the insta
 
 The installer offers:
 
-1. **VPS / public HTTPS** — needs a domain pointing to the VPS and open ports `80` and `443`.
+1. **VPS / public HTTPS** — asks for one hostname, needs it pointing to the VPS and open ports `80` and `443`. The certificate and URL use exactly that hostname; no `www` name is added.
 2. **LAN / local network** — no domain required; open port `8112` locally.
 3. **macOS / Docker Desktop** — no root access or domain; files stay under `$HOME/Downloads/deluge` and WebUI is at `http://localhost:8112`.
 
@@ -137,11 +139,12 @@ If a Torrentflix stack is already running, the installer offers `Install` or `De
 
 Choose **Plex** in the root menu and enter the media directory.
 
-Plex asks one simple question:
+Plex asks for the optional claim token and media directory:
 
 ```text
 Torrentflix Plex
 
+Plex claim token (optional):
 Media directory [/mnt/plexmedia]:
 ```
 
@@ -150,6 +153,10 @@ Choose a local directory or a host-mounted NAS directory for media. Plex is avai
 ```text
 http://SERVER_IP:32400/web
 ```
+
+For a headless VPS, the installer can optionally accept a short-lived Plex claim token from [plex.tv/claim](https://www.plex.tv/claim). Without a token, use the printed SSH tunnel for the first setup.
+
+VPS HSTS defaults to `max-age=63072000` for the selected hostname. `includeSubDomains` and `preload` are enabled only when explicitly requested during installation.
 
 ## What you receive
 
@@ -245,13 +252,15 @@ Do not use `--remove-source-files` until you have confirmed that completed torre
 - Do not expose Deluge port `8112` directly to the public Internet.
 - VPS mode publishes HTTPS through Nginx and does not publish Deluge port `8112` on the host.
 - macOS mode binds the WebUI to localhost through Docker Desktop.
-- Port `6881` is for incoming BitTorrent traffic and remains internal to the container.
+- Port `6881` is for incoming BitTorrent traffic and remains internal by default; the installer can explicitly publish a separate host peer port.
 - In VPS mode, Deluge WebUI port `8112` is also internal; bundled Nginx is the only public entry point.
 - Docker isolation reduces risk but does not replace host updates, backups or careful handling of downloaded files.
 
 Plex deliberately uses host networking for LAN discovery and compatibility with Plex clients. It is therefore less isolated than Deluge. Plex has a pinned image, resource limits, a temporary filesystem and `no-new-privileges`, but does not use `read_only` or `cap_drop: ALL` because those restrictions can break Plex configuration, cache and transcoding.
 
 The Deluge base image and Plex image are pinned by immutable registry digest. The dark theme is downloaded from a fixed upstream commit and verified with SHA-256 before it is unpacked.
+
+Incoming BitTorrent traffic is disabled on the host by default. The installer can explicitly publish one TCP/UDP peer port when inbound peers or seeding are important; the WebUI port and peer port are separate settings.
 
 </details>
 

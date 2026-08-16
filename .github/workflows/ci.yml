@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: ShellCheck
+        run: shellcheck --severity=error run.sh
+
+      - name: Validate Compose files
+        run: |
+          docker compose -f deluge/compose.yml config --quiet
+          docker compose -f deluge/compose.vps.yml config --quiet
+          docker compose -f plex/compose.yml config --quiet
+
+  build:
+    runs-on: ubuntu-latest
+    needs: validate
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Prepare pinned Deluge theme
+        shell: bash
+        run: |
+          set -euo pipefail
+          theme_dir="$RUNNER_TEMP/deluge-theme"
+          archive="$RUNNER_TEMP/deluge-theme.tar.gz"
+          mkdir -p "$theme_dir"
+          curl -fsSL \
+            'https://raw.githubusercontent.com/joelacus/deluge-web-dark-theme/dbef18e3c9a2cb0f2448d16bb95dca868f94440e/deluge_web_dark_theme.tar.gz' \
+            -o "$archive"
+          test "$(sha256sum "$archive" | awk '{print $1}')" = \
+            '5c3e6a4453fb06c16bc89f3b3789f12ba56b01addc111477211cb63e93f291bb'
+          tar -xzf "$archive" -C "$theme_dir"
+          cp -a "$theme_dir" deluge/theme
+
+      - name: Build Deluge image
+        run: docker build --pull -f deluge/Dockerfile -t torrentflix-ci-deluge deluge
+
+      - name: Build bundled Nginx image
+        run: docker build --pull -f deluge/nginx/Dockerfile -t torrentflix-ci-nginx deluge/nginx

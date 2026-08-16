@@ -15,6 +15,7 @@ services:
     volumes:
       - ${DELUGE_ROOT:-/opt/deluge}/config:/config
       - ${DOWNLOAD_DIR:-/mnt/downloads}:/downloads
+    ports: ${TORRENTFLIX_PORTS:-[]}
     expose:
       - "8112"
       - "6881"
@@ -42,7 +43,7 @@ services:
   nginx:
     build:
       context: ./nginx
-    image: local/torrentflix-nginx:latest
+    image: local/torrentflix-nginx:1.31.3-acme
     container_name: torrentflix-nginx
     depends_on:
       - deluge

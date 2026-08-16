@@ -4,8 +4,8 @@ services:
     image: ${PLEX_IMAGE:-plexinc/pms-docker:1.43.3.10861-07dfddaeb@sha256:5bc1d13f48da6366f46aaf2a3ce1a6292897eadc1f8efcbbd7321d30e94f2ed4}
     restart: unless-stopped
     environment:
-      - TZ=${TZ:-UTC}
-      - PLEX_PORT=32401
+      TZ: ${TZ:-UTC}
+      PLEX_CLAIM: ${PLEX_CLAIM:-}
     network_mode: host
     volumes:
       - ${ROOT:-/opt/plex}/config/plex/db:/config
