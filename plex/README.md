@@ -11,13 +11,16 @@ chmod +x run.sh
 ./run.sh
 ```
 
-The script asks for the Plex root directory and media directory. Defaults are `/opt/plex` and `/mnt/plexmedia`.
+The script always installs the runnable Compose project in `/opt/plex` and asks only for the media directory. The default is `/mnt/plexmedia`.
 
 Manual startup:
 
 ```bash
-cp .env.example .env
-docker compose --env-file .env up -d
+PLEX_ROOT=/opt/plex
+docker compose \
+  --env-file "$PLEX_ROOT/.env" \
+  -f "$PLEX_ROOT/compose.yml" \
+  up -d
 ```
 
 Plex is available on the host network at:
@@ -98,6 +101,7 @@ Make sure the user or UID/GID used by Plex has read access to the media share. I
 ## Updating
 
 ```bash
-docker compose --env-file .env pull
-docker compose --env-file .env up -d
+PLEX_ROOT=/opt/plex
+docker compose --env-file "$PLEX_ROOT/.env" -f "$PLEX_ROOT/compose.yml" pull
+docker compose --env-file "$PLEX_ROOT/.env" -f "$PLEX_ROOT/compose.yml" up -d
 ```

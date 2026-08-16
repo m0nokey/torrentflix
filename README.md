@@ -63,7 +63,7 @@ chmod +x run.sh
 
 The installer asks where downloads should be stored. The default is `/mnt/downloads`; the directory is created automatically if it does not exist.
 
-The repository is only used as the build source. Deluge runtime data is always stored under `/opt/deluge`, including its configuration, generated environment file, password and Nginx runtime configuration.
+The repository is used as the source for installation. The installer copies the complete runnable Deluge project into `/opt/deluge`: Compose, Dockerfile, downloaded theme, Nginx files, configuration, generated environment file and password. You can manage it directly with absolute paths after installation.
 
 The installer also asks for a deployment mode:
 
@@ -71,7 +71,7 @@ The installer also asks for a deployment mode:
 2. **LAN/direct access** — starts Deluge only. No Nginx and no domain are required; access the WebUI directly on port `8112`.
 3. **Existing Nginx** — starts Deluge only and generates a reverse-proxy configuration for an Nginx installation that you already manage. A domain is required.
 
-The generated domain-specific configuration and Nginx `.env` file are placed under `/opt/deluge/nginx/` when mode 1 or mode 3 is selected.
+The generated domain-specific configuration and Nginx `.env` file are placed under `/opt/deluge/nginx/` when mode 1 or mode 3 is selected. The repository checkout is not required for day-to-day operation after installation.
 
 For VPS mode, the domain must resolve to the VPS and inbound TCP ports `80` and `443` must be reachable from the Internet. The bundled Nginx uses the ACME HTTP-01 challenge and serves the WebUI at:
 
@@ -96,9 +96,9 @@ After installation, the WebUI password is available in:
 Manage the service with:
 
 ```bash
-docker compose --env-file /opt/deluge/.env -f deluge/compose.yml ps
-docker compose --env-file /opt/deluge/.env -f deluge/compose.yml logs -f deluge
-docker compose --env-file /opt/deluge/.env -f deluge/compose.yml down
+docker compose --env-file /opt/deluge/.env -f /opt/deluge/compose.yml ps
+docker compose --env-file /opt/deluge/.env -f /opt/deluge/compose.yml logs -f deluge
+docker compose --env-file /opt/deluge/.env -f /opt/deluge/compose.yml down
 ```
 
 ## Storage layout

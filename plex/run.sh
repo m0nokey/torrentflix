@@ -2,20 +2,15 @@
 set -euo pipefail
 
 PROJECT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-COMPOSE_FILE="$PROJECT_DIR/compose.yml"
-ENV_FILE="$PROJECT_DIR/.env"
+INSTALL_ROOT="/opt/plex"
+COMPOSE_FILE="$INSTALL_ROOT/compose.yml"
+ENV_FILE="$INSTALL_ROOT/.env"
 
 command -v docker >/dev/null || { echo "[!] Docker is required" >&2; exit 1; }
 
-DEFAULT_ROOT="/opt/plex"
 DEFAULT_MEDIA="/mnt/plexmedia"
 
-read -r -p "Plex root directory [$DEFAULT_ROOT]: " ROOT_INPUT
-ROOT="${ROOT_INPUT:-$DEFAULT_ROOT}"
-case "$ROOT" in
-    /*) ;;
-    *) echo "[!] Plex root must be an absolute path" >&2; exit 1 ;;
-esac
+ROOT="$INSTALL_ROOT"
 
 read -r -p "Media directory [$DEFAULT_MEDIA]: " MEDIA_INPUT
 MEDIA_DIR="${MEDIA_INPUT:-$DEFAULT_MEDIA}"
@@ -25,6 +20,13 @@ case "$MEDIA_DIR" in
 esac
 
 mkdir -p "$ROOT/config/plex/db" "$ROOT/config/plex/transcode" "$MEDIA_DIR"
+
+echo "[+] Installing the Compose project into $ROOT..."
+mkdir -p "$ROOT"
+cp "$PROJECT_DIR/compose.yml" "$ROOT/compose.yml"
+cp "$PROJECT_DIR/.env.example" "$ROOT/.env.example"
+cp "$PROJECT_DIR/run.sh" "$ROOT/run.sh"
+chmod 755 "$ROOT/run.sh"
 
 cat > "$ENV_FILE" <<EOF
 ROOT=$ROOT

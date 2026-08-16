@@ -2,10 +2,11 @@
 set -euo pipefail
 
 PROJECT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-NGINX_DIR="$PROJECT_DIR/nginx"
 INSTALL_ROOT="/opt/deluge"
+SOURCE_NGINX_DIR="$PROJECT_DIR/nginx"
+NGINX_DIR="$INSTALL_ROOT/nginx"
 CONFIG_DIR="$INSTALL_ROOT/config"
-THEME_DIR="$PROJECT_DIR/theme"
+THEME_DIR="$INSTALL_ROOT/theme"
 SECRETS_DIR="$INSTALL_ROOT/secrets"
 PASSWORD_FILE="$SECRETS_DIR/webui.password"
 ENV_FILE="$INSTALL_ROOT/.env"
@@ -34,6 +35,20 @@ if [ "$PROJECT_DIR/secrets" != "$SECRETS_DIR" ] && [ -f "$PROJECT_DIR/secrets/we
     cp -a "$PROJECT_DIR/secrets/webui.password" "$PASSWORD_FILE"
     chmod 600 "$PASSWORD_FILE"
 fi
+
+echo "[+] Installing the Compose project into $INSTALL_ROOT..."
+mkdir -p "$NGINX_DIR"
+cp "$PROJECT_DIR/Dockerfile" "$INSTALL_ROOT/Dockerfile"
+cp "$PROJECT_DIR/compose.yml" "$INSTALL_ROOT/compose.yml"
+cp "$PROJECT_DIR/.dockerignore" "$INSTALL_ROOT/.dockerignore"
+cp "$PROJECT_DIR/run.sh" "$INSTALL_ROOT/run.sh"
+chmod 755 "$INSTALL_ROOT/run.sh"
+cp "$SOURCE_NGINX_DIR/Dockerfile" "$NGINX_DIR/Dockerfile"
+cp "$SOURCE_NGINX_DIR/compose.yml" "$NGINX_DIR/compose.yml"
+cp "$SOURCE_NGINX_DIR/nginx.conf" "$NGINX_DIR/nginx.conf"
+cp "$SOURCE_NGINX_DIR/.env.example" "$NGINX_DIR/.env.example"
+rm -rf "$NGINX_DIR/conf.d"
+cp -a "$SOURCE_NGINX_DIR/conf.d" "$NGINX_DIR/conf.d"
 
 echo "Select deployment mode:"
 echo "  1) VPS: Deluge + bundled Nginx + automatic Let's Encrypt certificate"
@@ -98,9 +113,9 @@ curl -fsSL "$THEME_URL" | tar -xz -C "$THEME_DIR"
 [ -f "$THEME_DIR/themes/css/xtheme-dark.css" ] || die "Theme CSS is missing"
 
 echo "[+] Building Deluge image..."
-docker compose --env-file "$ENV_FILE" -f "$PROJECT_DIR/compose.yml" build --pull
+docker compose --env-file "$ENV_FILE" -f "$INSTALL_ROOT/compose.yml" build --pull
 echo "[+] Starting Deluge..."
-docker compose --env-file "$ENV_FILE" -f "$PROJECT_DIR/compose.yml" up -d
+docker compose --env-file "$ENV_FILE" -f "$INSTALL_ROOT/compose.yml" up -d
 
 echo "[+] Waiting for Deluge WebUI..."
 READY=0
@@ -113,7 +128,7 @@ for _ in $(seq 1 60); do
 done
 
 if [ "$READY" != 1 ]; then
-    docker compose --env-file "$ENV_FILE" -f "$PROJECT_DIR/compose.yml" logs --tail=100 deluge
+    docker compose --env-file "$ENV_FILE" -f "$INSTALL_ROOT/compose.yml" logs --tail=100 deluge
     die "WebUI failed"
 fi
 
@@ -236,8 +251,8 @@ fi
 echo "======================================"
 echo " Torrentflix Deluge installation done"
 echo "======================================"
-echo "Compose source: $PROJECT_DIR"
-echo "Compose file:   $PROJECT_DIR/compose.yml"
+echo "Compose source: $INSTALL_ROOT"
+echo "Compose file:   $INSTALL_ROOT/compose.yml"
 echo "Runtime root:   $INSTALL_ROOT"
 echo "WebUI URL:     $WEBUI_URL"
 echo "Password file: $PASSWORD_FILE"
