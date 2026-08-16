@@ -26,6 +26,28 @@ RUN cat >> "${WEB_DIR}/themes/css/xtheme-dark.css" <<'EOF'
 .x-form-field-wrap .x-form-spinner-click {
     background-image: none !important;
 }
+
+/* Deluge 2.2 / Preferences layout fixes */
+/* Keep the lower Queue fields reachable on short screens. */
+body:has(#max_download_speed) .x-window {
+    max-height: calc(100vh - 24px) !important;
+}
+
+body:has(#max_download_speed) .x-window-body {
+    max-height: calc(100vh - 105px) !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+}
+
+body:has(#max_download_speed) .x-column-inner {
+    height: auto !important;
+    min-height: 0 !important;
+    padding-bottom: 18px !important;
+}
+
+body:has(#max_download_speed) .x-fieldset {
+    margin-bottom: 10px !important;
+}
 EOF
 
 # LinuxServer runs Deluge with the PUID/PGID supplied at runtime. The base

@@ -266,7 +266,7 @@ run_deluge() {
     # Migrate runtime data from an older checkout-based installation.
     if [ "$PROJECT_DIR/deluge/config" != "$CONFIG_DIR" ] && [ -d "$PROJECT_DIR/deluge/config" ] && [ ! -e "$CONFIG_DIR/.migrated" ]; then
         mkdir -p "$CONFIG_DIR"
-        cp -a "$PROJECT_DIR/config/." "$CONFIG_DIR/"
+        cp -a "$PROJECT_DIR/deluge/config/." "$CONFIG_DIR/"
         touch "$CONFIG_DIR/.migrated"
     fi
     if [ "$PROJECT_DIR/deluge/secrets" != "$SECRETS_DIR" ] && [ -f "$PROJECT_DIR/deluge/secrets/webui.password" ] && [ ! -f "$PASSWORD_FILE" ]; then
@@ -296,7 +296,7 @@ run_deluge() {
     if [ "$DEPLOYMENT_MODE" = 1 ]; then
         COMPOSE_FILE="$INSTALL_ROOT/compose.vps.yml"
         NGINX_RUNTIME_CONF="$NGINX_DIR/conf.d.runtime"
-        cp "$PROJECT_DIR/compose.vps.yml" "$COMPOSE_FILE"
+        cp "$PROJECT_DIR/deluge/compose.vps.yml" "$COMPOSE_FILE"
         mkdir -p "$NGINX_DIR/conf.d.runtime" "$NGINX_DIR/www"
         cp "$SOURCE_NGINX_DIR/Dockerfile" "$NGINX_DIR/Dockerfile"
         cp "$SOURCE_NGINX_DIR/nginx.conf" "$NGINX_DIR/nginx.conf"
