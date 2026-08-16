@@ -67,11 +67,10 @@ The repository is used as the source for installation. The installer copies the 
 
 The installer also asks for a deployment mode:
 
-1. **VPS + bundled Nginx** — starts Deluge and the included Nginx container, then obtains a Let's Encrypt certificate automatically. A public domain is required.
-2. **LAN/direct access** — starts Deluge only. No Nginx and no domain are required; access the WebUI directly on port `8112`.
-3. **Existing Nginx** — starts Deluge only and generates a reverse-proxy configuration for an Nginx installation that you already manage. A domain is required.
+1. **VPS + bundled Nginx** — starts Deluge and the included Nginx container in one Compose project, then obtains a Let's Encrypt certificate automatically. A public domain is required.
+2. **LAN/direct access** — starts Deluge only. No Nginx and no domain are required; access the WebUI directly on port `8112`. If you already run a reverse proxy, configure it yourself against the Deluge port.
 
-The generated domain-specific configuration and Nginx `.env` file are placed under `/opt/deluge/nginx/` when mode 1 or mode 3 is selected. The repository checkout is not required for day-to-day operation after installation.
+In VPS mode, the generated Nginx configuration is placed under `/opt/deluge/nginx/conf.d.runtime/`. The repository checkout is not required for day-to-day operation after installation.
 
 For VPS mode, the domain must resolve to the VPS and inbound TCP ports `80` and `443` must be reachable from the Internet. The bundled Nginx uses the ACME HTTP-01 challenge and serves the WebUI at:
 
@@ -95,10 +94,20 @@ After installation, the WebUI password is available in:
 
 Manage the service with:
 
+LAN/direct mode:
+
 ```bash
 docker compose --env-file /opt/deluge/.env -f /opt/deluge/compose.yml ps
 docker compose --env-file /opt/deluge/.env -f /opt/deluge/compose.yml logs -f deluge
 docker compose --env-file /opt/deluge/.env -f /opt/deluge/compose.yml down
+```
+
+VPS + bundled Nginx mode:
+
+```bash
+docker compose --env-file /opt/deluge/.env -f /opt/deluge/compose.vps.yml ps
+docker compose --env-file /opt/deluge/.env -f /opt/deluge/compose.vps.yml logs -f
+docker compose --env-file /opt/deluge/.env -f /opt/deluge/compose.vps.yml down
 ```
 
 ## Storage layout
@@ -237,7 +246,7 @@ Port `6881` is used for incoming BitTorrent connections. If incoming connections
 
 The directories `config/`, `secrets/`, `.env` and the downloaded theme are excluded from Git. Never commit `secrets/`.
 
-The generated `/opt/deluge/nginx/.env` and `/opt/deluge/nginx/conf.d.runtime/` files are runtime files and are not part of the repository. The committed `deluge/nginx/.env.example` contains only placeholder values.
+In VPS mode, `/opt/deluge/compose.vps.yml` runs Deluge and the bundled Nginx together. Its named ACME volume is created automatically by Compose as `torrentflix_nginx_acme_state`. In LAN mode, no Nginx files are installed. If you use your own reverse proxy, configure it independently and proxy to the Deluge WebUI port.
 
 ## Updating
 

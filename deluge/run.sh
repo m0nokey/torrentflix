@@ -10,8 +10,8 @@ THEME_DIR="$INSTALL_ROOT/theme"
 SECRETS_DIR="$INSTALL_ROOT/secrets"
 PASSWORD_FILE="$SECRETS_DIR/webui.password"
 ENV_FILE="$INSTALL_ROOT/.env"
-NGINX_ENV_FILE="$INSTALL_ROOT/nginx/.env"
 NGINX_RUNTIME_CONF="$INSTALL_ROOT/nginx/conf.d.runtime"
+COMPOSE_FILE="$INSTALL_ROOT/compose.yml"
 IMAGE="lscr.io/linuxserver/deluge:2.2.0"
 WEB_DIR="/lsiopy/lib/python3.12/site-packages/deluge/ui/web"
 THEME_URL="https://github.com/joelacus/deluge-web-dark-theme/raw/main/deluge_web_dark_theme.tar.gz"
@@ -36,38 +36,48 @@ if [ "$PROJECT_DIR/secrets" != "$SECRETS_DIR" ] && [ -f "$PROJECT_DIR/secrets/we
     chmod 600 "$PASSWORD_FILE"
 fi
 
-echo "[+] Installing the Compose project into $INSTALL_ROOT..."
-mkdir -p "$NGINX_DIR"
-cp "$PROJECT_DIR/Dockerfile" "$INSTALL_ROOT/Dockerfile"
-cp "$PROJECT_DIR/compose.yml" "$INSTALL_ROOT/compose.yml"
-cp "$PROJECT_DIR/.dockerignore" "$INSTALL_ROOT/.dockerignore"
-cp "$SOURCE_NGINX_DIR/Dockerfile" "$NGINX_DIR/Dockerfile"
-cp "$SOURCE_NGINX_DIR/compose.yml" "$NGINX_DIR/compose.yml"
-cp "$SOURCE_NGINX_DIR/nginx.conf" "$NGINX_DIR/nginx.conf"
-cp "$SOURCE_NGINX_DIR/.env.example" "$NGINX_DIR/.env.example"
-rm -rf "$NGINX_DIR/conf.d"
-cp -a "$SOURCE_NGINX_DIR/conf.d" "$NGINX_DIR/conf.d"
-
 echo "Select deployment mode:"
 echo "  1) VPS: Deluge + bundled Nginx + automatic Let's Encrypt certificate"
 echo "  2) LAN: Deluge only, direct WebUI access, no Nginx"
-echo "  3) Existing Nginx: Deluge + generated reverse-proxy configuration"
 read -r -p "Mode [1]: " DEPLOYMENT_MODE
 DEPLOYMENT_MODE="${DEPLOYMENT_MODE:-1}"
 case "$DEPLOYMENT_MODE" in
-    1|2|3) ;;
-    *) die "Choose 1, 2 or 3" ;;
+    1|2) ;;
+    *) die "Choose 1 or 2" ;;
 esac
 
 DOMAIN=""
 WWW_DOMAIN=""
-if [ "$DEPLOYMENT_MODE" != 2 ]; then
+if [ "$DEPLOYMENT_MODE" = 1 ]; then
     read -r -p "Public domain [domain.com]: " DOMAIN_INPUT
     DOMAIN="${DOMAIN_INPUT:-domain.com}"
     case "$DOMAIN" in
         ''|*[!A-Za-z0-9.-]*) die "Domain contains unsupported characters" ;;
     esac
     WWW_DOMAIN="www.$DOMAIN"
+fi
+
+echo "[+] Installing the required project files into $INSTALL_ROOT..."
+cp "$PROJECT_DIR/Dockerfile" "$INSTALL_ROOT/Dockerfile"
+cp "$PROJECT_DIR/compose.yml" "$INSTALL_ROOT/compose.yml"
+cp "$PROJECT_DIR/.dockerignore" "$INSTALL_ROOT/.dockerignore"
+
+# Stop an older deployment before replacing its runtime files.
+if [ -f "$INSTALL_ROOT/compose.vps.yml" ]; then
+    docker compose --env-file "$ENV_FILE" -f "$INSTALL_ROOT/compose.vps.yml" down --remove-orphans || true
+fi
+if [ -f "$NGINX_DIR/compose.yml" ] && [ -f "$NGINX_DIR/.env" ]; then
+    docker compose --env-file "$NGINX_DIR/.env" -f "$NGINX_DIR/compose.yml" down --remove-orphans || true
+fi
+rm -rf "$NGINX_DIR" "$INSTALL_ROOT/compose.vps.yml"
+
+if [ "$DEPLOYMENT_MODE" = 1 ]; then
+    COMPOSE_FILE="$INSTALL_ROOT/compose.vps.yml"
+    NGINX_RUNTIME_CONF="$NGINX_DIR/conf.d.runtime"
+    cp "$PROJECT_DIR/compose.vps.yml" "$COMPOSE_FILE"
+    mkdir -p "$NGINX_DIR/conf.d.runtime" "$NGINX_DIR/www"
+    cp "$SOURCE_NGINX_DIR/Dockerfile" "$NGINX_DIR/Dockerfile"
+    cp "$SOURCE_NGINX_DIR/nginx.conf" "$NGINX_DIR/nginx.conf"
 fi
 
 mkdir -p "$CONFIG_DIR" "$SECRETS_DIR"
@@ -110,10 +120,19 @@ curl -fsSL "$THEME_URL" | tar -xz -C "$THEME_DIR"
 [ -d "$THEME_DIR/images" ] || die "Theme images are missing"
 [ -f "$THEME_DIR/themes/css/xtheme-dark.css" ] || die "Theme CSS is missing"
 
+if [ "$DEPLOYMENT_MODE" = 1 ]; then
+    echo "[+] Generating bundled Nginx configuration..."
+    rm -rf "$NGINX_RUNTIME_CONF"
+    mkdir -p "$NGINX_RUNTIME_CONF"
+    cp "$SOURCE_NGINX_DIR/conf.d/00-acme.conf" "$NGINX_RUNTIME_CONF/00-acme.conf"
+    sed "s/domain\.com/$DOMAIN/g" \
+        "$SOURCE_NGINX_DIR/conf.d/domain.com.conf" > "$NGINX_RUNTIME_CONF/$DOMAIN.conf"
+fi
+
 echo "[+] Building Deluge image..."
-docker compose --env-file "$ENV_FILE" -f "$INSTALL_ROOT/compose.yml" build --pull
+docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" build --pull
 echo "[+] Starting Deluge..."
-docker compose --env-file "$ENV_FILE" -f "$INSTALL_ROOT/compose.yml" up -d
+docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d
 
 echo "[+] Waiting for Deluge WebUI..."
 READY=0
@@ -126,7 +145,7 @@ for _ in $(seq 1 60); do
 done
 
 if [ "$READY" != 1 ]; then
-    docker compose --env-file "$ENV_FILE" -f "$INSTALL_ROOT/compose.yml" logs --tail=100 deluge
+    docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" logs --tail=100 deluge
     die "WebUI failed"
 fi
 
@@ -169,72 +188,8 @@ if [ "$DEPLOYMENT_MODE" = 2 ]; then
     echo
     echo "Deluge is running in LAN/direct mode."
     echo "WebUI: http://SERVER_IP:8112"
-elif [ "$DEPLOYMENT_MODE" = 3 ]; then
-    WEBUI_URL="https://$WWW_DOMAIN/deluge/"
-    echo "[+] Generating configuration for an existing Nginx..."
-    rm -rf "$NGINX_RUNTIME_CONF"
-    mkdir -p "$NGINX_RUNTIME_CONF"
-    cat > "$NGINX_RUNTIME_CONF/$DOMAIN.conf" <<EOF
-server {
-    listen 80;
-    server_name $DOMAIN $WWW_DOMAIN;
-
-    location = /deluge {
-        return 301 /deluge/;
-    }
-
-    location ^~ /deluge/ {
-        proxy_pass http://127.0.0.1:8112/;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header X-Deluge-Base "/deluge/";
-        proxy_redirect off;
-        proxy_buffering off;
-    }
-}
-EOF
-    cp "$NGINX_DIR/.env.example" "$NGINX_ENV_FILE"
-    sed -i \
-        -e "s/^PRIMARY_DOMAIN=.*/PRIMARY_DOMAIN=$DOMAIN/" \
-        -e "s/^WWW_DOMAIN=.*/WWW_DOMAIN=$WWW_DOMAIN/" \
-        -e "s#^NGINX_CONF_DIR=.*#NGINX_CONF_DIR=$NGINX_RUNTIME_CONF#" \
-        "$NGINX_ENV_FILE"
-    chmod 600 "$NGINX_ENV_FILE"
-
-    echo
-    echo "Deluge is running without a bundled Nginx."
-    echo "Generated Nginx config: $NGINX_RUNTIME_CONF/$DOMAIN.conf"
-    echo "WebUI: http://SERVER_IP:8112"
 else
     WEBUI_URL="https://$WWW_DOMAIN/deluge/"
-    echo "[+] Preparing the bundled Nginx and ACME certificate..."
-    rm -rf "$NGINX_RUNTIME_CONF"
-    mkdir -p "$NGINX_RUNTIME_CONF"
-    cp "$NGINX_DIR/conf.d/00-acme.conf" "$NGINX_RUNTIME_CONF/00-acme.conf"
-    sed "s/domain\.com/$DOMAIN/g" \
-        "$NGINX_DIR/conf.d/domain.com.conf" > "$NGINX_RUNTIME_CONF/$DOMAIN.conf"
-
-    mkdir -p "$(dirname "$NGINX_ENV_FILE")"
-    cp "$NGINX_DIR/.env.example" "$NGINX_ENV_FILE"
-    sed -i \
-        -e "s/^PRIMARY_DOMAIN=.*/PRIMARY_DOMAIN=$DOMAIN/" \
-        -e "s/^WWW_DOMAIN=.*/WWW_DOMAIN=$WWW_DOMAIN/" \
-        -e "s#^NGINX_CONF_DIR=.*#NGINX_CONF_DIR=$NGINX_RUNTIME_CONF#" \
-        "$NGINX_ENV_FILE"
-    chmod 600 "$NGINX_ENV_FILE"
-
-    docker network inspect edge >/dev/null 2>&1 || docker network create edge >/dev/null
-    docker volume inspect nginx_acme_state >/dev/null 2>&1 || docker volume create nginx_acme_state >/dev/null
-    docker network connect edge deluge >/dev/null 2>&1 || true
-
-    docker compose --env-file "$NGINX_ENV_FILE" -f "$NGINX_DIR/compose.yml" build --pull
-    docker compose --env-file "$NGINX_ENV_FILE" -f "$NGINX_DIR/compose.yml" up -d
-
     echo
     echo "Deluge and bundled Nginx are running."
     echo "URL: https://$WWW_DOMAIN/deluge/"
@@ -250,7 +205,7 @@ echo "======================================"
 echo " Torrentflix Deluge installation done"
 echo "======================================"
 echo "Compose source: $INSTALL_ROOT"
-echo "Compose file:   $INSTALL_ROOT/compose.yml"
+echo "Compose file:   $COMPOSE_FILE"
 echo "Runtime root:   $INSTALL_ROOT"
 echo "WebUI URL:     $WEBUI_URL"
 echo "Password file: $PASSWORD_FILE"
