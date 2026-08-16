@@ -24,6 +24,7 @@ clear_terminal() {
 
 run_plex() {
     PROJECT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+    PLEX_IMAGE="plexinc/pms-docker:1.43.3.10861-07dfddaeb@sha256:5bc1d13f48da6366f46aaf2a3ce1a6292897eadc1f8efcbbd7321d30e94f2ed4"
     if [ "$HOST_OS" = "Darwin" ]; then
         INSTALL_ROOT="${TORRENTFLIX_PLEX_ROOT:-$HOME/Downloads/plex}"
     else
@@ -77,6 +78,11 @@ run_plex() {
 ROOT=$ROOT
 TZ=UTC
 MEDIA_DIR=$MEDIA_DIR
+PLEX_IMAGE=$PLEX_IMAGE
+PLEX_MEM_LIMIT=4g
+PLEX_MEM_RESERVATION=512m
+PLEX_CPUS=2.0
+PLEX_PIDS_LIMIT=512
 EOF
     chmod 600 "$ENV_FILE"
 
@@ -93,9 +99,11 @@ EOF
 run_deluge() {
     PROJECT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
     SOURCE_NGINX_DIR="$PROJECT_DIR/deluge/nginx"
-    IMAGE="lscr.io/linuxserver/deluge:2.2.0"
+    IMAGE="lscr.io/linuxserver/deluge:2.2.0@sha256:33a939576f7ecfc1227db1a0cb2afce030ce983e620ec9d93c956e3700e21fe9"
     WEB_DIR="/lsiopy/lib/python3.12/site-packages/deluge/ui/web"
-    THEME_URL="https://github.com/joelacus/deluge-web-dark-theme/raw/main/deluge_web_dark_theme.tar.gz"
+    THEME_COMMIT="dbef18e3c9a2cb0f2448d16bb95dca868f94440e"
+    THEME_SHA256="5c3e6a4453fb06c16bc89f3b3789f12ba56b01addc111477211cb63e93f291bb"
+    THEME_URL="https://raw.githubusercontent.com/joelacus/deluge-web-dark-theme/${THEME_COMMIT}/deluge_web_dark_theme.tar.gz"
 
     if [ -t 1 ]; then
         COLOR_RESET=$'\033[0m'
@@ -149,6 +157,17 @@ run_deluge() {
     command -v curl >/dev/null || die "curl is required"
     command -v tar >/dev/null || die "tar is required"
     command -v openssl >/dev/null || die "openssl is required"
+    if ! command -v sha256sum >/dev/null 2>&1 && ! command -v shasum >/dev/null 2>&1; then
+        die "sha256sum or shasum is required"
+    fi
+
+    sha256_file() {
+        if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$1" | awk '{print $1}'
+        else
+            shasum -a 256 "$1" | awk '{print $1}'
+        fi
+    }
 
     clear_terminal
     printf '%s%s%s\n' "$COLOR_LINE" "Torrentflix Deluge" "$COLOR_RESET"
@@ -165,7 +184,7 @@ run_deluge() {
     printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "   No root access, domain, or Nginx required. Open http://localhost:8112." "$COLOR_RESET"
     printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "   Project and downloads stay under ~/Downloads/deluge." "$COLOR_RESET"
     echo
-    printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "Technical: VPS mode keeps Deluge on 127.0.0.1:8112 and publishes HTTPS through Nginx." "$COLOR_RESET"
+    printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "Technical: VPS mode keeps Deluge:8112 inside Docker and publishes HTTPS through Nginx." "$COLOR_RESET"
     printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "           LAN mode publishes Deluge WebUI directly on port 8112." "$COLOR_RESET"
     printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "           macOS mode binds WebUI to 127.0.0.1 and uses Docker Desktop." "$COLOR_RESET"
     echo
@@ -329,8 +348,17 @@ run_deluge() {
     esac
     mkdir -p "$DOWNLOAD_DIR"
 
-    PUID="$(id -u)"
-    PGID="$(id -g)"
+    if [ -n "${TORRENTFLIX_PUID:-}" ]; then
+        PUID="$TORRENTFLIX_PUID"
+        PGID="${TORRENTFLIX_PGID:-$TORRENTFLIX_PUID}"
+    elif [ "$(id -u)" = 0 ] && [ -n "${SUDO_UID:-}" ]; then
+        PUID="$SUDO_UID"
+        PGID="${SUDO_GID:-$SUDO_UID}"
+    else
+        PUID="$(id -u)"
+        PGID="$(id -g)"
+    fi
+    [[ "$PUID" =~ ^[0-9]+$ && "$PGID" =~ ^[0-9]+$ ]] || die "PUID and PGID must be numeric"
     cat > "$ENV_FILE" <<EOF
 DOWNLOAD_DIR=$DOWNLOAD_DIR
 DELUGE_IMAGE=$IMAGE
@@ -355,7 +383,14 @@ EOF
     echo "[+] Downloading theme..."
     rm -rf "$THEME_DIR"
     mkdir -p "$THEME_DIR"
-    curl -fsSL "$THEME_URL" | tar -xz -C "$THEME_DIR"
+    THEME_ARCHIVE="$(mktemp)"
+    curl -fsSL "$THEME_URL" -o "$THEME_ARCHIVE"
+    [ "$(sha256_file "$THEME_ARCHIVE")" = "$THEME_SHA256" ] || {
+        rm -f "$THEME_ARCHIVE"
+        die "Theme checksum verification failed"
+    }
+    tar -xzf "$THEME_ARCHIVE" -C "$THEME_DIR"
+    rm -f "$THEME_ARCHIVE"
     [ -d "$THEME_DIR/icons" ] || die "Theme icons are missing"
     [ -d "$THEME_DIR/images" ] || die "Theme images are missing"
     [ -f "$THEME_DIR/themes/css/xtheme-dark.css" ] || die "Theme CSS is missing"
@@ -377,9 +412,17 @@ EOF
     echo "[+] Waiting for Deluge WebUI..."
     READY=0
     for _ in $(seq 1 60); do
-        if curl -fsS "http://127.0.0.1:8112/" >/dev/null 2>&1; then
-            READY=1
-            break
+        if [ "$DEPLOYMENT_MODE" = 1 ]; then
+            if docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T nginx \
+                sh -c 'curl -fsS http://deluge:8112/ >/dev/null' >/dev/null 2>&1; then
+                READY=1
+                break
+            fi
+        else
+            if curl -fsS "http://127.0.0.1:8112/" >/dev/null 2>&1; then
+                READY=1
+                break
+            fi
         fi
         sleep 1
     done
@@ -395,8 +438,15 @@ EOF
     WEB_PASSWORD="$(cat "$PASSWORD_FILE")"
 
     rpc() {
-        printf '%s' "$1" | curl -fsS -c "$COOKIE" -b "$COOKIE" \
-            -H 'Content-Type: application/json' --data-binary @- "$WEB_URL"
+        if [ "$DEPLOYMENT_MODE" = 1 ]; then
+            printf '%s' "$1" | docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
+                exec -T nginx sh -c \
+                'curl -fsS -c /tmp/torrentflix-rpc.cookies -b /tmp/torrentflix-rpc.cookies \
+                    -H "Content-Type: application/json" --data-binary @- http://deluge:8112/json'
+        else
+            printf '%s' "$1" | curl -fsS -c "$COOKIE" -b "$COOKIE" \
+                -H 'Content-Type: application/json' --data-binary @- "$WEB_URL"
+        fi
     }
 
     LOGIN="$(rpc "{\"method\":\"auth.login\",\"params\":[\"$WEB_PASSWORD\"],\"id\":1}")"
@@ -409,10 +459,7 @@ EOF
 
         echo "[+] Changing WebUI password..."
         PASSWORD_RESULT="$(
-            printf '%s' \
-                "{\"method\":\"auth.change_password\",\"params\":[\"deluge\",\"$WEB_PASSWORD\"],\"id\":2}" |
-            curl -fsS -c "$COOKIE" -b "$COOKIE" \
-                -H 'Content-Type: application/json' --data-binary @- "$WEB_URL"
+            rpc "{\"method\":\"auth.change_password\",\"params\":[\"deluge\",\"$WEB_PASSWORD\"],\"id\":2}"
         )"
         echo "$PASSWORD_RESULT" | grep -q '"result": true' || {
             echo "[!] Password change failed: $PASSWORD_RESULT"

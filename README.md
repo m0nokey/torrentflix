@@ -58,6 +58,30 @@ Click a preview to open the full-size image.
 
 Requirements: Docker Engine with Compose on Linux, or Docker Desktop on macOS, plus `curl`, `tar` and `openssl`.
 
+### Linux Docker access
+
+The Docker daemon normally runs with root privileges, but the installer itself does not need to be run as root. Give your user access to Docker once:
+
+```bash
+sudo usermod -aG docker "$USER"
+newgrp docker
+docker info
+```
+
+If Docker is not running:
+
+```bash
+sudo systemctl enable --now docker
+```
+
+The Linux runtime directories are `/opt/deluge` and `/opt/plex`. If your user cannot write there, prepare them once and then run `./run.sh` as your normal user:
+
+```bash
+sudo install -d -o "$USER" -g "$(id -gn)" /opt/deluge /opt/plex
+```
+
+Running `sudo ./run.sh` is also supported when required. The installer uses `SUDO_UID` and `SUDO_GID` for Deluge's runtime user instead of silently configuring Deluge as UID 0.
+
 ### Start Torrentflix
 
 ```bash
@@ -129,11 +153,13 @@ http://SERVER_IP:32400/web
 
 ## What you receive
 
-- a pinned Deluge `2.2.0` image with the dark WebUI theme;
+- a Deluge `2.2.0` image pinned by digest with the dark WebUI theme;
 - a random WebUI password stored with permissions `600`;
 - a read-only container root filesystem;
 - safer defaults for VPS, LAN and macOS use;
-- optional Plex deployment for a local network or VPS.
+- optional Plex deployment for a local network or VPS, using a versioned image pinned by digest.
+
+Torrentflix is intentionally small: it does not include Sonarr, Radarr, Prowlarr, automatic searching, renaming, importing or media orchestration. Deluge downloads files and Plex serves the library you give it.
 
 ## Technical details
 
@@ -179,7 +205,7 @@ docker compose --env-file /opt/deluge/.env -f /opt/deluge/compose.vps.yml ps
 docker compose --env-file /opt/deluge/.env -f /opt/deluge/compose.vps.yml down
 ```
 
-The named ACME volume `torrentflix_nginx_acme_state` is created automatically by Compose. Nginx proxies to the Docker service `deluge:8112`; Deluge WebUI remains bound to `127.0.0.1:8112` in VPS mode.
+The named ACME volume `torrentflix_nginx_acme_state` is created automatically by Compose. Nginx proxies to the Docker service `deluge:8112`. In VPS mode Deluge port `8112` is not published on the host at all; the installer performs its WebUI check and password bootstrap from inside the Docker network.
 
 ### NAS storage
 
@@ -217,11 +243,15 @@ Do not use `--remove-source-files` until you have confirmed that completed torre
 ### Security boundaries
 
 - Do not expose Deluge port `8112` directly to the public Internet.
-- VPS mode publishes HTTPS through Nginx and keeps Deluge on localhost.
+- VPS mode publishes HTTPS through Nginx and does not publish Deluge port `8112` on the host.
 - macOS mode binds the WebUI to localhost through Docker Desktop.
 - Port `6881` is for incoming BitTorrent traffic and remains internal to the container.
 - In VPS mode, Deluge WebUI port `8112` is also internal; bundled Nginx is the only public entry point.
 - Docker isolation reduces risk but does not replace host updates, backups or careful handling of downloaded files.
+
+Plex deliberately uses host networking for LAN discovery and compatibility with Plex clients. It is therefore less isolated than Deluge. Plex has a pinned image, resource limits, a temporary filesystem and `no-new-privileges`, but does not use `read_only` or `cap_drop: ALL` because those restrictions can break Plex configuration, cache and transcoding.
+
+The Deluge base image and Plex image are pinned by immutable registry digest. The dark theme is downloaded from a fixed upstream commit and verified with SHA-256 before it is unpacked.
 
 </details>
 

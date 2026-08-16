@@ -4,7 +4,7 @@ services:
     build:
       context: .
       args:
-        DELUGE_IMAGE: ${DELUGE_IMAGE:-lscr.io/linuxserver/deluge:2.2.0}
+        DELUGE_IMAGE: ${DELUGE_IMAGE:-lscr.io/linuxserver/deluge:2.2.0@sha256:33a939576f7ecfc1227db1a0cb2afce030ce983e620ec9d93c956e3700e21fe9}
         WEB_DIR: ${WEB_DIR:-/lsiopy/lib/python3.12/site-packages/deluge/ui/web}
     container_name: deluge
     environment:

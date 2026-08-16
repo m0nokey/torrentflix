@@ -1,4 +1,4 @@
-ARG DELUGE_IMAGE=lscr.io/linuxserver/deluge:2.2.0
+ARG DELUGE_IMAGE=lscr.io/linuxserver/deluge:2.2.0@sha256:33a939576f7ecfc1227db1a0cb2afce030ce983e620ec9d93c956e3700e21fe9
 FROM ${DELUGE_IMAGE} AS stock
 FROM ${DELUGE_IMAGE}
 

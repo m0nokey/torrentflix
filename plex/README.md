@@ -2,6 +2,8 @@
 
 Docker Compose configuration for Plex Media Server using host networking.
 
+The Plex image is pinned to a version and registry digest. Host networking is intentional: it provides the simplest setup for LAN discovery and Plex client compatibility. This gives Plex a wider network view than the hardened Deluge container.
+
 The project supports a local media directory or a NAS share mounted on the Docker host through SMB/CIFS or NFS.
 
 ## Setup
@@ -11,7 +13,7 @@ chmod +x run.sh
 ./run.sh
 ```
 
-The script always installs the runnable Compose project in `/opt/plex` and asks only for the media directory. The default is `/mnt/plexmedia`.
+On Linux, the script installs the runnable Compose project in `/opt/plex` and asks only for the media directory. The default is `/mnt/plexmedia`. On macOS it uses `$HOME/Downloads/plex` and a user-owned media directory.
 
 Manual startup:
 
@@ -30,6 +32,8 @@ http://SERVER_IP:32400/web
 ```
 
 The Plex database and transcoding files are stored under `${ROOT}/config/plex/`. The media library is mounted inside the container at `/mnt/plexmedia`.
+
+The container has resource limits, `no-new-privileges` and a `tmpfs` for `/tmp`. It intentionally does not use `read_only` or `cap_drop: ALL`, because Plex writes to its database, cache and transcoding paths during normal operation.
 
 ## Storage layout
 

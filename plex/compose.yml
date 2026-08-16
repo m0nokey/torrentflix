@@ -1,7 +1,7 @@
 services:
   plex-server:
     container_name: plex-server
-    image: plexinc/pms-docker:latest
+    image: ${PLEX_IMAGE:-plexinc/pms-docker:1.43.3.10861-07dfddaeb@sha256:5bc1d13f48da6366f46aaf2a3ce1a6292897eadc1f8efcbbd7321d30e94f2ed4}
     restart: unless-stopped
     environment:
       - TZ=${TZ:-UTC}
@@ -11,3 +11,14 @@ services:
       - ${ROOT:-/opt/plex}/config/plex/db:/config
       - ${ROOT:-/opt/plex}/config/plex/transcode:/transcode
       - ${MEDIA_DIR:-/mnt/plexmedia}:/mnt/plexmedia
+
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=256m
+
+    security_opt:
+      - no-new-privileges:true
+
+    mem_limit: ${PLEX_MEM_LIMIT:-4g}
+    mem_reservation: ${PLEX_MEM_RESERVATION:-512m}
+    cpus: ${PLEX_CPUS:-2.0}
+    pids_limit: ${PLEX_PIDS_LIMIT:-512}
