@@ -120,7 +120,7 @@ if [ "${#EXISTING_STACKS[@]}" -gt 0 ]; then
         printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "   Running: $existing_stack" "$COLOR_RESET"
     done
     echo
-    printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "   The container will be stopped. Config, password and downloads will be kept." "$COLOR_RESET"
+    printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "   Containers will be stopped and removed. Config, password and downloads will be kept." "$COLOR_RESET"
     echo
     printf '%s%s.%s %s%s%s\n' "$COLOR_LINE" "1" "$COLOR_RESET" "$COLOR_TEXT" "Stop it and continue installation" "$COLOR_RESET"
     printf '%s%s.%s %s%s%s\n' "$COLOR_LINE" "2" "$COLOR_RESET" "$COLOR_TEXT" "Cancel" "$COLOR_RESET"
