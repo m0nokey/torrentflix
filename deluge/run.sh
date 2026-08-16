@@ -16,6 +16,18 @@ IMAGE="lscr.io/linuxserver/deluge:2.2.0"
 WEB_DIR="/lsiopy/lib/python3.12/site-packages/deluge/ui/web"
 THEME_URL="https://github.com/joelacus/deluge-web-dark-theme/raw/main/deluge_web_dark_theme.tar.gz"
 
+if [ -t 1 ]; then
+    COLOR_RESET=$'\033[0m'
+    COLOR_TEXT=$'\033[97m'
+    COLOR_LINE=$'\033[38;5;117m'
+    COLOR_MUTED_ITALIC=$'\033[3;38;5;245m'
+else
+    COLOR_RESET=''
+    COLOR_TEXT=''
+    COLOR_LINE=''
+    COLOR_MUTED_ITALIC=''
+fi
+
 die() { echo "[!] $*" >&2; exit 1; }
 command -v docker >/dev/null || die "Docker is required"
 command -v curl >/dev/null || die "curl is required"
@@ -36,10 +48,21 @@ if [ "$PROJECT_DIR/secrets" != "$SECRETS_DIR" ] && [ -f "$PROJECT_DIR/secrets/we
     chmod 600 "$PASSWORD_FILE"
 fi
 
-echo "Select deployment mode:"
-echo "  1) VPS: Deluge + bundled Nginx + automatic Let's Encrypt certificate"
-echo "  2) LAN: Deluge only, direct WebUI access, no Nginx"
-read -r -p "Mode [1]: " DEPLOYMENT_MODE
+if command -v clear >/dev/null 2>&1 && [ -t 1 ]; then
+    clear
+else
+    printf '\033c'
+fi
+printf '%s%s%s\n' "$COLOR_LINE" "Torrentflix Deluge" "$COLOR_RESET"
+echo
+printf '%s%s%s\n' "$COLOR_TEXT" "Select deployment mode." "$COLOR_RESET"
+echo
+printf '%s%s.%s %s%s%s\n' "$COLOR_LINE" "1" "$COLOR_RESET" "$COLOR_TEXT" "VPS deployment" "$COLOR_RESET"
+printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "   Deluge + bundled Nginx + automatic Let's Encrypt certificate" "$COLOR_RESET"
+printf '%s%s.%s %s%s%s\n' "$COLOR_LINE" "2" "$COLOR_RESET" "$COLOR_TEXT" "LAN deployment" "$COLOR_RESET"
+printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "   Deluge only, direct WebUI access, no Nginx" "$COLOR_RESET"
+echo
+read -r -p "?: " DEPLOYMENT_MODE
 DEPLOYMENT_MODE="${DEPLOYMENT_MODE:-1}"
 case "$DEPLOYMENT_MODE" in
     1|2) ;;
