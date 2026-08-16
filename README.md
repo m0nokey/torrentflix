@@ -4,18 +4,7 @@
 
 > Download it. Stream it. Own it.
 
-Torrentflix is a self-hosted Docker media stack for running Deluge and Plex with a dark Deluge WebUI theme and secure Nginx HTTPS access. NAS storage is supported as an optional backend.
-
-## Project layout
-
-```text
-torrentflix/
-├── deluge/    Deluge, dark theme, optional bundled Nginx and HTTPS
-├── plex/      Plex Media Server and media-storage setup
-└── README.md
-```
-
-The project uses the official LinuxServer.io image, `lscr.io/linuxserver/deluge:2.2.0`. During the build, the original WebUI assets are preserved and the dark theme is layered on top. Host Python/WebUI directories are not mounted into the running container.
+Torrentflix lets you quickly run Deluge for downloading and Plex for watching your media. Choose a VPS, your local network, or a Mac with Docker Desktop.
 
 ## Screenshots
 
@@ -40,20 +29,29 @@ Click a preview to open the full-size image.
   </tr>
 </table>
 
-## Features
+## Choose your scenario
 
-- Deluge 2.2.0;
-- [Deluge Web Dark Theme](https://github.com/joelacus/deluge-web-dark-theme);
-- automatically generated random 128-bit WebUI password;
-- password stored in `secrets/webui.password` with mode `600`;
-- read-only root filesystem;
-- `no-new-privileges`, dropped Linux capabilities and resource limits;
-- interactive download-directory selection;
-- support for local storage or NAS storage mounted on the Docker host.
+| You want to... | Choose | What you get |
+|---|---|---|
+| Download from anywhere | **Deluge on a VPS** | HTTPS, Let's Encrypt and bundled Nginx |
+| Download at home | **Deluge in LAN mode** | No domain or Nginx; local WebUI |
+| Download temporarily on a Mac | **Deluge on macOS** | Docker Desktop, no root access, `http://localhost:8112` |
+| Watch media at home | **Plex in LAN mode** | Your own library at `http://SERVER_IP:32400/web` |
+| Watch media remotely | **Plex on a VPS** | Plex with local, NAS or synchronized storage |
+
+## Why run Deluge in Docker?
+
+Torrent clients are third-party software and, like browsers or media players, can contain security bugs. Deluge has had documented WebUI vulnerabilities, including [CVE-2021-3427](https://nvd.nist.gov/vuln/detail/CVE-2021-3427), which involved a crafted torrent file and the WebUI. Older Deluge versions also had plugin-related issues.
+
+This does not mean that every torrent client is compromised. It means that installing random clients, plugins or builds directly on your personal computer is an unnecessary risk.
+
+Torrentflix reduces the impact of a problem with Docker isolation, a random WebUI password, a read-only root filesystem, reduced Linux capabilities and no public WebUI in VPS mode. This is risk reduction, not a guarantee of perfect security.
 
 ## Quick start
 
-Requirements: Linux or macOS with Docker Engine/Docker Desktop and the Compose plugin, plus `curl`, `tar` and `openssl`.
+Requirements: Docker Engine with Compose on Linux, or Docker Desktop on macOS, plus `curl`, `tar` and `openssl`.
+
+### Deluge
 
 ```bash
 cd deluge
@@ -61,40 +59,50 @@ chmod +x run.sh
 ./run.sh
 ```
 
-The installer asks where downloads should be stored. The default is `/mnt/downloads` on Linux and `$HOME/Downloads/deluge/downloads` on macOS; the directory is created automatically if it does not exist.
+The installer offers:
 
-The repository is used as the source for installation. On Linux, the installer copies the runnable project into `/opt/deluge`; on macOS, it uses `$HOME/Downloads/deluge`. The installer itself remains in the repository; the installed project is managed with absolute paths.
+1. **VPS / public HTTPS** — needs a domain pointing to the VPS and open ports `80` and `443`.
+2. **LAN / local network** — no domain required; open port `8112` locally.
+3. **macOS / Docker Desktop** — no root access or domain; files stay under `$HOME/Downloads/deluge` and WebUI is at `http://localhost:8112`.
 
-The installer also asks for a deployment mode:
+If a Torrentflix stack is already running, the installer offers `Install` or `Delete`. Install keeps configuration, password and downloads. Delete requires typing `DELETE` and removes the runtime directory.
 
-1. **VPS + bundled Nginx** — starts Deluge and the included Nginx container in one Compose project, then obtains a Let's Encrypt certificate automatically. A public domain is required.
-2. **LAN/direct access** — starts Deluge only. No Nginx and no domain are required; access the WebUI directly on port `8112`. If you already run a reverse proxy, configure it yourself against the Deluge port.
-3. **macOS/Docker Desktop** — runs without root access, a domain or Nginx. Project files and downloads are stored under `$HOME/Downloads/deluge`; the WebUI is available at `http://localhost:8112`.
+### Plex
 
-In VPS mode, the generated Nginx configuration is placed under `/opt/deluge/nginx/conf.d.runtime/`. The repository checkout is not required for day-to-day operation after installation.
-
-For VPS mode, the domain must resolve to the VPS and inbound TCP ports `80` and `443` must be reachable from the Internet. The bundled Nginx uses the ACME HTTP-01 challenge and serves the WebUI at:
-
-```text
-https://www.example.com/deluge/
+```bash
+cd plex
+chmod +x run.sh
+./run.sh
 ```
 
-For LAN/direct mode, open the WebUI directly:
+Choose a local directory or a host-mounted NAS directory for media. Plex is available at:
 
 ```text
-http://SERVER_IP:8112
+http://SERVER_IP:32400/web
 ```
 
-After installation, the WebUI password is available in:
+## What you receive
 
-```text
-/opt/deluge/secrets/webui.password       # Linux
-$HOME/Downloads/deluge/secrets/webui.password  # macOS
-```
+- a pinned Deluge `2.2.0` image with the dark WebUI theme;
+- a random WebUI password stored with permissions `600`;
+- a read-only container root filesystem;
+- safer defaults for VPS, LAN and macOS use;
+- optional Plex deployment for a local network or VPS.
 
-Manage the service with:
+## Technical details
 
-LAN/direct mode:
+<details>
+<summary>Open technical details</summary>
+
+### Runtime paths
+
+| Platform | Project | Default downloads | WebUI |
+|---|---|---|---|
+| Linux VPS/LAN | `/opt/deluge` | `/mnt/downloads` | `http://SERVER_IP:8112` |
+| macOS | `$HOME/Downloads/deluge` | `$HOME/Downloads/deluge/downloads` | `http://localhost:8112` |
+| Plex Linux | `/opt/plex` | `/mnt/plexmedia` | `http://SERVER_IP:32400/web` |
+
+LAN and macOS Deluge use:
 
 ```bash
 docker compose --env-file /opt/deluge/.env -f /opt/deluge/compose.yml ps
@@ -102,176 +110,60 @@ docker compose --env-file /opt/deluge/.env -f /opt/deluge/compose.yml logs -f de
 docker compose --env-file /opt/deluge/.env -f /opt/deluge/compose.yml down
 ```
 
-VPS + bundled Nginx mode:
+On macOS, use `$HOME/Downloads/deluge` instead of `/opt/deluge`.
+
+VPS mode uses one Compose project for Deluge and Nginx:
 
 ```bash
 docker compose --env-file /opt/deluge/.env -f /opt/deluge/compose.vps.yml ps
-docker compose --env-file /opt/deluge/.env -f /opt/deluge/compose.vps.yml logs -f
 docker compose --env-file /opt/deluge/.env -f /opt/deluge/compose.vps.yml down
 ```
 
-macOS/Docker Desktop mode:
+The named ACME volume `torrentflix_nginx_acme_state` is created automatically by Compose. Nginx proxies to the Docker service `deluge:8112`; Deluge WebUI remains bound to `127.0.0.1:8112` in VPS mode.
 
-```bash
-DELUGE_ROOT="$HOME/Downloads/deluge"
-docker compose --env-file "$DELUGE_ROOT/.env" -f "$DELUGE_ROOT/compose.yml" ps
-docker compose --env-file "$DELUGE_ROOT/.env" -f "$DELUGE_ROOT/compose.yml" down
-```
+### NAS storage
 
-## Storage layout
-
-The recommended server-side layout is:
+Mount SMB/CIFS or NFS on the Docker host, then give the installer the mount point. Do not mount the NAS from inside the container.
 
 ```text
-NAS storage (SMB/CIFS or NFS share)
-        |
-        | mounted by /etc/fstab
-        v
-Docker host: /mnt/downloads
-        |
-        | Compose bind mount
-        v
-Deluge container: /downloads
+NAS share -> host mount (/mnt/downloads) -> Deluge (/downloads)
+NAS share -> host mount (/mnt/plexmedia) -> Plex (/mnt/plexmedia)
 ```
 
-The installer should be given `/mnt/downloads`. Docker then maps the host directory to `/downloads` inside the container.
-
-Mounting the NAS share on the host is preferable to mounting it directly in the container: reconnect behavior, permissions, boot ordering and network failures remain managed by the host operating system.
-
-## VPS without mounting the NAS
-
-If Deluge is running on a VPS, the home NAS does not have to be mounted on the VPS at all. Completed files can be transferred over SSH with `rsync`:
-
-```bash
-rsync -a \
-  --partial \
-  --append-verify \
-  --remove-source-files \
-  --info=progress2 \
-  /downloads/completed/ \
-  user@home-server:/srv/media/completed/
-```
-
-Remove empty source directories after a successful transfer:
-
-```bash
-find /downloads/completed -type d -empty -delete
-```
-
-The command should be run on the VPS after downloads are complete. Configure SSH keys for unattended transfers and make sure the remote user has write access to `/srv/media/completed/`.
-
-In this project, `/downloads` is the path inside the Deluge container. When running `rsync` directly on the VPS host, use the host-side path from `.env`, for example:
-
-```bash
-rsync -a \
-  --partial \
-  --append-verify \
-  --remove-source-files \
-  --info=progress2 \
-  /mnt/downloads/completed/ \
-  user@home-server:/srv/media/completed/
-```
-
-Then remove empty directories on the VPS host:
-
-```bash
-find /mnt/downloads/completed -type d -empty -delete
-```
-
-This approach avoids SMB/NFS connectivity and does not require a permanent mount. It is often preferable when the VPS can make outbound SSH connections but cannot reliably reach the home network. Do not use `--remove-source-files` until the transfer process has been tested and you have confirmed whether completed torrents must remain available for seeding.
-
-## SMB/CIFS with `/etc/fstab`
-
-Install the CIFS tools:
-
-```bash
-sudo apt-get update
-sudo apt-get install -y cifs-utils
-```
-
-Create the mount point:
-
-```bash
-sudo mkdir -p /mnt/downloads
-```
-
-Example `/etc/fstab` entry. The values below are fictional placeholders:
+Example SMB/CIFS entry with fictional values:
 
 ```fstab
 //192.0.2.50/media /mnt/downloads cifs vers=3.1.1,username=deluge-nas,password=ChangeThisExamplePassword,iocharset=utf8,file_mode=0770,dir_mode=0770,noperm,_netdev,x-systemd.automount 0 0
 ```
 
-For production, avoid putting a plain-text password directly in `/etc/fstab`. Use a credentials file instead:
-
-```bash
-sudo install -m 600 /dev/null /root/.smb-deluge
-sudo sh -c 'printf "%s\n" "username=deluge-nas" "password=ChangeThisExamplePassword" > /root/.smb-deluge'
-```
-
-Then use:
-
-```fstab
-//192.0.2.50/media /mnt/downloads cifs vers=3.1.1,credentials=/root/.smb-deluge,iocharset=utf8,file_mode=0770,dir_mode=0770,noperm,_netdev,x-systemd.automount 0 0
-```
-
-## NFS with `/etc/fstab`
-
-Install the NFS client tools:
-
-```bash
-sudo apt-get update
-sudo apt-get install -y nfs-common
-```
-
-Example `/etc/fstab` entry using fictional values:
+Example NFS entry with fictional values:
 
 ```fstab
 192.0.2.60:/export/media /mnt/downloads nfs4 rw,_netdev,noatime,x-systemd.automount,x-systemd.requires=network-online.target 0 0
 ```
 
-For both SMB and NFS, test the mount before starting Deluge:
+### VPS without mounting the NAS
+
+Completed files can be sent to a home server over SSH:
 
 ```bash
-sudo systemctl daemon-reload
-sudo mount /mnt/downloads
-mountpoint /mnt/downloads
-touch /mnt/downloads/.deluge-write-test
-rm /mnt/downloads/.deluge-write-test
+rsync -a --partial --append-verify --remove-source-files --info=progress2 \
+  /mnt/downloads/completed/ user@home-server:/srv/media/completed/
+find /mnt/downloads/completed -type d -empty -delete
 ```
 
-NFS permissions are normally controlled by numeric UID/GID. Make sure the user represented by the container's `PUID` and `PGID` has write access on the export:
+Do not use `--remove-source-files` until you have confirmed that completed torrents no longer need to seed.
 
-```bash
-id -u
-id -g
-```
+### Security boundaries
 
-## Security notes
+- Do not expose Deluge port `8112` directly to the public Internet.
+- VPS mode publishes HTTPS through Nginx and keeps Deluge on localhost.
+- macOS mode binds the WebUI to localhost through Docker Desktop.
+- Port `6881` is for incoming BitTorrent traffic; remove its mappings if not needed.
+- Docker isolation reduces risk but does not replace host updates, backups or careful handling of downloaded files.
 
-The WebUI is published over HTTP on port `8112`. Do not expose it directly to the public Internet. For remote access, use a VPN or an HTTPS reverse proxy with an additional authentication layer, and restrict the port with a firewall.
-
-Port `6881` is used for incoming BitTorrent connections. If incoming connections are not required, remove the TCP and UDP port mappings from `compose.yml`.
-
-The directories `config/`, `secrets/`, `.env` and the downloaded theme are excluded from Git. Never commit `secrets/`.
-
-In VPS mode, `/opt/deluge/compose.vps.yml` runs Deluge and the bundled Nginx together. Its named ACME volume is created automatically by Compose as `torrentflix_nginx_acme_state`. In LAN and macOS modes, no Nginx files are installed. If you use your own reverse proxy, configure it independently and proxy to the Deluge WebUI port.
-
-## Updating
-
-The application version is pinned to `2.2.0`. When a new stable Deluge release becomes available, update `IMAGE` in `deluge/run.sh` and the default `DELUGE_IMAGE` value in `deluge/compose.yml`, then run:
-
-```bash
-./deluge/run.sh
-```
-
-Deluge configuration is stored in `/opt/deluge/config/`; downloaded data remains in the selected host directory.
-
-The supported Deluge installer is `deluge/run.sh`. The Plex installer is `plex/run.sh`. Runtime files, secrets and downloaded assets are excluded from Git.
-
-See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for attribution and licensing information about the included third-party components.
+</details>
 
 ## Credits and licenses
 
-The dark WebUI theme is created and maintained by [Joelacus](https://github.com/joelacus) in the [deluge-web-dark-theme](https://github.com/joelacus/deluge-web-dark-theme) repository. The theme is distributed under the **GNU General Public License v3.0 (GPLv3)**. Please refer to the upstream repository for the complete license text and usage terms.
-
-Torrentflix configuration and helper scripts are provided under the license included in this repository. Deluge, Plex, Nginx and all other third-party components remain subject to their own licenses.
+The dark WebUI theme is created and maintained by [Joelacus](https://github.com/joelacus) in the [deluge-web-dark-theme](https://github.com/joelacus/deluge-web-dark-theme) repository. It is distributed under the **GNU General Public License v3.0**. See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
