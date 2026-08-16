@@ -1,8 +1,16 @@
-# Torrentflix
+<h1 align="center">🎬 Torrentflix</h1>
 
-> A self-hosted Docker media stack with Deluge, Plex and secure Nginx HTTPS access.
+<p align="center">
+  <b>Download it. Stream it. Own it.</b>
+</p>
 
-> Download it. Stream it. Own it.
+<p align="center">
+  A self-hosted Docker media stack with Deluge, Plex and secure Nginx HTTPS access.
+</p>
+
+<p align="center">
+  <img src="https://readme-typing-svg.herokuapp.com?font=Fira+Code&size=18&pause=3000&center=true&vCenter=true&width=600&lines=Download+with+Deluge.;Watch+with+Plex.;Keep+your+media+under+your+control." alt="Torrentflix features">
+</p>
 
 Torrentflix is a small self-hosted media stack for people who want to:
 
