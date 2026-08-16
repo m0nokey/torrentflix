@@ -114,9 +114,11 @@ for candidate_root in "${CANDIDATE_ROOTS[@]}"; do
                 *) existing_root="${candidate_file%/*}" ;;
             esac
             already_listed=0
-            for listed_root in "${EXISTING_ROOTS[@]}"; do
-                [ "$listed_root" = "$existing_root" ] && already_listed=1
-            done
+            if [ "${#EXISTING_ROOTS[@]}" -gt 0 ]; then
+                for listed_root in "${EXISTING_ROOTS[@]}"; do
+                    [ "$listed_root" = "$existing_root" ] && already_listed=1
+                done
+            fi
             [ "$already_listed" = 1 ] || EXISTING_ROOTS+=("$existing_root")
         fi
     done
