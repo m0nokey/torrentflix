@@ -152,10 +152,12 @@ THEME_RESULT="$(rpc '{"method":"web.set_theme","params":["dark"],"id":3}')"
 echo "$THEME_RESULT" | grep -Eq '"result": true|"error": null' || die "Theme API failed: $THEME_RESULT"
 
 if [ "$DEPLOYMENT_MODE" = 2 ]; then
+    WEBUI_URL="http://SERVER_IP:8112"
     echo
     echo "Deluge is running in LAN/direct mode."
     echo "WebUI: http://SERVER_IP:8112"
 elif [ "$DEPLOYMENT_MODE" = 3 ]; then
+    WEBUI_URL="https://$WWW_DOMAIN/deluge/"
     echo "[+] Generating configuration for an existing Nginx..."
     rm -rf "$NGINX_RUNTIME_CONF"
     mkdir -p "$NGINX_RUNTIME_CONF"
@@ -196,6 +198,7 @@ EOF
     echo "Generated Nginx config: $NGINX_RUNTIME_CONF/$DOMAIN.conf"
     echo "WebUI: http://SERVER_IP:8112"
 else
+    WEBUI_URL="https://$WWW_DOMAIN/deluge/"
     echo "[+] Preparing the bundled Nginx and ACME certificate..."
     rm -rf "$NGINX_RUNTIME_CONF"
     mkdir -p "$NGINX_RUNTIME_CONF"
@@ -224,5 +227,16 @@ else
     echo "URL: https://$WWW_DOMAIN/deluge/"
 fi
 
+if command -v clear >/dev/null 2>&1 && [ -t 1 ]; then
+    clear
+else
+    printf '\033c'
+fi
+
+echo "======================================"
+echo " Torrentflix Deluge installation done"
+echo "======================================"
+echo "WebUI URL:     $WEBUI_URL"
 echo "Password file: $PASSWORD_FILE"
+echo "WebUI password: $WEB_PASSWORD"
 echo "Downloads:     $DOWNLOAD_DIR"
