@@ -15,7 +15,6 @@ services:
     volumes:
       - ${DELUGE_ROOT:-/opt/deluge}/config:/config
       - ${DOWNLOAD_DIR:-/mnt/downloads}:/downloads
-    ports: ${TORRENTFLIX_PORTS:-[]}
     expose:
       - "8112"
       - "6881"

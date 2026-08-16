@@ -129,9 +129,12 @@ run_deluge() {
         fi
     }
     compose_is_running() {
-        local compose_file="$1" root="${2%/*}" args=(-f "$1")
+        local compose_file="$1" root="${2:-${1%/*}}" args=(-f "$1")
         if [ -f "$root/.env" ]; then
             args=(--env-file "$root/.env" "${args[@]}")
+        fi
+        if [ -f "$root/compose.peer.yml" ]; then
+            args+=( -f "$root/compose.peer.yml" )
         fi
         [ -n "$(docker compose "${args[@]}" ps -q 2>/dev/null || true)" ]
     }
@@ -139,6 +142,9 @@ run_deluge() {
         local compose_file="$1" root="${1%/*}" args=(-f "$1")
         if [ -f "$root/.env" ]; then
             args=(--env-file "$root/.env" "${args[@]}")
+        fi
+        if [ -f "$root/compose.peer.yml" ]; then
+            args+=( -f "$root/compose.peer.yml" )
         fi
         docker compose "${args[@]}" down --remove-orphans
     }
@@ -229,6 +235,7 @@ run_deluge() {
     ENV_FILE="$INSTALL_ROOT/.env"
     NGINX_RUNTIME_CONF="$INSTALL_ROOT/nginx/conf.d.runtime"
     COMPOSE_FILE="$INSTALL_ROOT/compose.yml"
+    PEER_COMPOSE_FILE="$INSTALL_ROOT/compose.peer.yml"
 
     declare -a EXISTING_STACKS=()
     declare -a EXISTING_ROOTS=()
@@ -318,7 +325,7 @@ run_deluge() {
 
     DOMAIN=""
     HSTS_POLICY="max-age=63072000"
-    PEER_PORTS="[]"
+    PEER_PORT=""
     if [ "$DEPLOYMENT_MODE" = 1 ]; then
         read -r -p "Hostname for Deluge HTTPS [deluge.example.com]: " DOMAIN_INPUT
         DOMAIN="${DOMAIN_INPUT:-deluge.example.com}"
@@ -336,20 +343,13 @@ run_deluge() {
         [[ "$PEER_PORT" =~ ^[0-9]+$ ]] || die "Peer port must be numeric"
         [ "$PEER_PORT" -ge 1 ] && [ "$PEER_PORT" -le 65535 ] || die "Peer port must be between 1 and 65535"
         [ "$DEPLOYMENT_MODE" = 1 ] || [ "$PEER_PORT" != 8112 ] || die "Peer port cannot be 8112 because that port is used by the WebUI"
-        PEER_PORTS="[\"0.0.0.0:${PEER_PORT}:6881/tcp\",\"0.0.0.0:${PEER_PORT}:6881/udp\"]"
-    fi
-    if [ "$DEPLOYMENT_MODE" = 1 ]; then
-        HOST_PORTS="$PEER_PORTS"
-    elif [ "$PEER_PORTS" = "[]" ]; then
-        HOST_PORTS="[\"${WEB_BIND_IP}:8112:8112\"]"
-    else
-        HOST_PORTS="[\"${WEB_BIND_IP}:8112:8112\",${PEER_PORTS#\[}"
     fi
 
     echo "[+] Installing the required project files into $INSTALL_ROOT..."
     cp "$PROJECT_DIR/deluge/Dockerfile" "$INSTALL_ROOT/Dockerfile"
     cp "$PROJECT_DIR/deluge/compose.yml" "$INSTALL_ROOT/compose.yml"
     cp "$PROJECT_DIR/deluge/.dockerignore" "$INSTALL_ROOT/.dockerignore"
+    rm -f "$PEER_COMPOSE_FILE"
 
     rm -rf "$NGINX_DIR" "$INSTALL_ROOT/compose.vps.yml"
 
@@ -361,6 +361,10 @@ run_deluge() {
         cp "$SOURCE_NGINX_DIR/Dockerfile" "$NGINX_DIR/Dockerfile"
         sed "s|__HSTS_POLICY__|$HSTS_POLICY|g" \
             "$SOURCE_NGINX_DIR/nginx.conf" > "$NGINX_DIR/nginx.conf"
+    fi
+
+    if [ -n "$PEER_PORT" ]; then
+        cp "$PROJECT_DIR/deluge/compose.peer.yml" "$PEER_COMPOSE_FILE"
     fi
 
     mkdir -p "$CONFIG_DIR" "$SECRETS_DIR"
@@ -395,7 +399,8 @@ WEB_BIND_IP=$WEB_BIND_IP
 DEPLOYMENT_MODE=$DEPLOYMENT_MODE
 PRIMARY_DOMAIN=$DOMAIN
 HSTS_POLICY=$HSTS_POLICY
-TORRENTFLIX_PORTS=$HOST_PORTS
+PEER_PORT=$PEER_PORT
+PEER_BIND_IP=0.0.0.0
 EOF
     chmod 600 "$ENV_FILE"
 
@@ -430,15 +435,18 @@ EOF
     fi
 
     echo "[+] Building Deluge image..."
-    docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" build --pull
+    COMPOSE_ARGS=(--env-file "$ENV_FILE" -f "$COMPOSE_FILE")
+    [ -f "$PEER_COMPOSE_FILE" ] && COMPOSE_ARGS+=( -f "$PEER_COMPOSE_FILE" )
+    compose() { docker compose "${COMPOSE_ARGS[@]}" "$@"; }
+    compose build --pull
     echo "[+] Starting Deluge..."
-    docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d
+    compose up -d
 
     echo "[+] Waiting for Deluge WebUI..."
     READY=0
     for _ in $(seq 1 60); do
         if [ "$DEPLOYMENT_MODE" = 1 ]; then
-            if docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" exec -T nginx \
+            if compose exec -T nginx \
                 sh -c 'curl -fsS http://deluge:8112/ >/dev/null' >/dev/null 2>&1; then
                 READY=1
                 break
@@ -453,7 +461,7 @@ EOF
     done
 
     if [ "$READY" != 1 ]; then
-        docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" logs --tail=100 deluge
+        compose logs --tail=100 deluge
         die "WebUI failed"
     fi
 
@@ -464,7 +472,7 @@ EOF
 
     rpc() {
         if [ "$DEPLOYMENT_MODE" = 1 ]; then
-            printf '%s' "$1" | docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" \
+            printf '%s' "$1" | compose \
                 exec -T nginx sh -c \
                 'curl -fsS -c /tmp/torrentflix-rpc.cookies -b /tmp/torrentflix-rpc.cookies \
                     -H "Content-Type: application/json" --data-binary @- http://deluge:8112/json'
@@ -518,7 +526,7 @@ EOF
     echo "Password file: $PASSWORD_FILE"
     echo "WebUI password: $WEB_PASSWORD"
     echo "Downloads:     $DOWNLOAD_DIR"
-    if [ "$PEER_PORTS" = "[]" ]; then
+    if [ -z "$PEER_PORT" ]; then
         echo "Peer port:     internal only"
     else
         echo "Peer port:     $PEER_PORT"
