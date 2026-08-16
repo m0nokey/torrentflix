@@ -65,10 +65,11 @@ The installer asks where downloads should be stored. The default is `/mnt/downlo
 
 The installer also asks for a deployment mode:
 
-1. **VPS mode** — starts Deluge and the bundled Nginx container, then obtains a Let's Encrypt certificate automatically.
-2. **LAN/existing-Nginx mode** — starts Deluge only and generates an Nginx reverse-proxy configuration for an existing Nginx installation.
+1. **VPS + bundled Nginx** — starts Deluge and the included Nginx container, then obtains a Let's Encrypt certificate automatically. A public domain is required.
+2. **LAN/direct access** — starts Deluge only. No Nginx and no domain are required; access the WebUI directly on port `8112`.
+3. **Existing Nginx** — starts Deluge only and generates a reverse-proxy configuration for an Nginx installation that you already manage. A domain is required.
 
-In both modes, enter the domain that should be used for the WebUI. The generated domain-specific configuration and Nginx `.env` file are placed under `nginx/`.
+The generated domain-specific configuration and Nginx `.env` file are placed under `deluge/nginx/` when mode 1 or mode 3 is selected.
 
 For VPS mode, the domain must resolve to the VPS and inbound TCP ports `80` and `443` must be reachable from the Internet. The bundled Nginx uses the ACME HTTP-01 challenge and serves the WebUI at:
 
@@ -76,7 +77,13 @@ For VPS mode, the domain must resolve to the VPS and inbound TCP ports `80` and 
 https://www.example.com/deluge/
 ```
 
-For LAN or existing-Nginx mode, no Nginx container is started. The generated file can be copied into an existing Nginx configuration, or ignored if the WebUI is only accessed directly on port `8112`.
+For LAN/direct mode, open the WebUI directly:
+
+```text
+http://SERVER_IP:8112
+```
+
+For existing-Nginx mode, copy or include the generated configuration in your existing Nginx setup. SSL certificates remain managed by that existing Nginx.
 
 After installation, the WebUI password is available in:
 

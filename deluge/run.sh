@@ -22,20 +22,25 @@ command -v openssl >/dev/null || die "openssl is required"
 
 echo "Select deployment mode:"
 echo "  1) VPS: Deluge + bundled Nginx + automatic Let's Encrypt certificate"
-echo "  2) LAN/existing Nginx: Deluge only, generate external Nginx configuration"
+echo "  2) LAN: Deluge only, direct WebUI access, no Nginx"
+echo "  3) Existing Nginx: Deluge + generated reverse-proxy configuration"
 read -r -p "Mode [1]: " DEPLOYMENT_MODE
 DEPLOYMENT_MODE="${DEPLOYMENT_MODE:-1}"
 case "$DEPLOYMENT_MODE" in
-    1|2) ;;
-    *) die "Choose 1 or 2" ;;
+    1|2|3) ;;
+    *) die "Choose 1, 2 or 3" ;;
 esac
 
-read -r -p "Public domain [domain.com]: " DOMAIN_INPUT
-DOMAIN="${DOMAIN_INPUT:-domain.com}"
-case "$DOMAIN" in
-    ''|*[!A-Za-z0-9.-]*) die "Domain contains unsupported characters" ;;
-esac
-WWW_DOMAIN="www.$DOMAIN"
+DOMAIN=""
+WWW_DOMAIN=""
+if [ "$DEPLOYMENT_MODE" != 2 ]; then
+    read -r -p "Public domain [domain.com]: " DOMAIN_INPUT
+    DOMAIN="${DOMAIN_INPUT:-domain.com}"
+    case "$DOMAIN" in
+        ''|*[!A-Za-z0-9.-]*) die "Domain contains unsupported characters" ;;
+    esac
+    WWW_DOMAIN="www.$DOMAIN"
+fi
 
 mkdir -p "$CONFIG_DIR" "$SECRETS_DIR"
 DEFAULT_DOWNLOAD_DIR="/mnt/downloads"
@@ -126,6 +131,10 @@ THEME_RESULT="$(rpc '{"method":"web.set_theme","params":["dark"],"id":3}')"
 echo "$THEME_RESULT" | grep -q '"result": true' || die "Theme API failed: $THEME_RESULT"
 
 if [ "$DEPLOYMENT_MODE" = 2 ]; then
+    echo
+    echo "Deluge is running in LAN/direct mode."
+    echo "WebUI: http://SERVER_IP:8112"
+elif [ "$DEPLOYMENT_MODE" = 3 ]; then
     echo "[+] Generating configuration for an existing Nginx..."
     rm -rf "$NGINX_RUNTIME_CONF"
     mkdir -p "$NGINX_RUNTIME_CONF"
