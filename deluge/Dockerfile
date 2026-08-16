@@ -30,7 +30,7 @@ RUN cat >> "${WEB_DIR}/themes/css/xtheme-dark.css" <<'EOF'
 /* Deluge 2.2 / Preferences layout fix */
 /* ExtJS sets these fieldsets to height: 132px, hiding the lower controls. */
 .x-column-inner .x-fieldset.x-column {
-    height: auto !important;
+    height: 170px !important;
 }
 EOF
 
