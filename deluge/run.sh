@@ -29,6 +29,13 @@ else
 fi
 
 die() { echo "[!] $*" >&2; exit 1; }
+clear_terminal() {
+    if command -v clear >/dev/null 2>&1 && [ -t 1 ]; then
+        clear
+    else
+        printf '\033c'
+    fi
+}
 command -v docker >/dev/null || die "Docker is required"
 command -v curl >/dev/null || die "curl is required"
 command -v tar >/dev/null || die "tar is required"
@@ -48,11 +55,7 @@ if [ "$PROJECT_DIR/secrets" != "$SECRETS_DIR" ] && [ -f "$PROJECT_DIR/secrets/we
     chmod 600 "$PASSWORD_FILE"
 fi
 
-if command -v clear >/dev/null 2>&1 && [ -t 1 ]; then
-    clear
-else
-    printf '\033c'
-fi
+clear_terminal
 printf '%s%s%s\n' "$COLOR_LINE" "Torrentflix Deluge" "$COLOR_RESET"
 echo
 printf '%s%s%s\n' "$COLOR_TEXT" "Select deployment mode." "$COLOR_RESET"
@@ -73,6 +76,8 @@ case "$DEPLOYMENT_MODE" in
     1|2) ;;
     *) die "Choose 1 or 2" ;;
 esac
+
+clear_terminal
 
 DOMAIN=""
 WWW_DOMAIN=""
@@ -223,11 +228,7 @@ else
     echo "URL: https://$WWW_DOMAIN/deluge/"
 fi
 
-if command -v clear >/dev/null 2>&1 && [ -t 1 ]; then
-    clear
-else
-    printf '\033c'
-fi
+clear_terminal
 
 echo "======================================"
 echo " Torrentflix Deluge installation done"
