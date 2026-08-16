@@ -4,7 +4,14 @@
 
 > Download it. Stream it. Own it.
 
-Torrentflix lets you quickly run Deluge for downloading and Plex for watching your media. Choose a VPS, your local network, or a Mac with Docker Desktop.
+Torrentflix is a small self-hosted media stack for people who want to:
+
+- watch films, courses and other media on their own server;
+- download files in an isolated Docker container using magnet links or torrent files;
+- save downloads directly to a NAS or a local disk;
+- run Deluge on a VPS, home server or Mac;
+- download something quickly on a Mac and remove the container afterwards;
+- stream the finished media through Plex in their private network.
 
 ## Screenshots
 
