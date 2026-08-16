@@ -49,7 +49,8 @@ run_plex() {
 
     PLEX_CLAIM=""
     printf '%sPlex claim token (optional): %s' "$COLOR_LINE" "$COLOR_RESET"
-    read -r PLEX_CLAIM
+    read -r -s PLEX_CLAIM
+    echo
 
     DEFAULT_MEDIA="/mnt/plexmedia"
 
@@ -85,6 +86,16 @@ EOF
 
     echo "[+] Starting Plex Media Server..."
     docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d
+
+    if [ -n "$PLEX_CLAIM" ]; then
+        # The claim token is passed to the newly created container, but should
+        # not remain in the host-side Compose environment file.
+        PLEX_ENV_TMP="$(mktemp)"
+        sed '/^PLEX_CLAIM=/d' "$ENV_FILE" > "$PLEX_ENV_TMP"
+        printf 'PLEX_CLAIM=\n' >> "$PLEX_ENV_TMP"
+        chmod 600 "$PLEX_ENV_TMP"
+        mv "$PLEX_ENV_TMP" "$ENV_FILE"
+    fi
 
     echo
     echo "Plex is running."
@@ -342,6 +353,8 @@ run_deluge() {
     if [ -n "$PEER_PORT" ]; then
         [[ "$PEER_PORT" =~ ^[0-9]+$ ]] || die "Peer port must be numeric"
         [ "$PEER_PORT" -ge 1 ] && [ "$PEER_PORT" -le 65535 ] || die "Peer port must be between 1 and 65535"
+        [ "$DEPLOYMENT_MODE" != 1 ] || { [ "$PEER_PORT" != 80 ] && [ "$PEER_PORT" != 443 ]; } || \
+            die "Peer port 80 and 443 are reserved by bundled Nginx"
         [ "$DEPLOYMENT_MODE" = 1 ] || [ "$PEER_PORT" != 8112 ] || die "Peer port cannot be 8112 because that port is used by the WebUI"
     fi
 
@@ -500,7 +513,16 @@ EOF
         }
     fi
 
-    THEME_RESULT="$(rpc '{"method":"web.set_theme","params":["dark"],"id":3}')"
+    if [ -n "$PEER_PORT" ]; then
+        echo "[+] Configuring Deluge inbound peer port..."
+        PEER_RESULT="$(rpc '{"method":"core.set_config","params":[{"random_port":false,"listen_ports":[6881,6881]}],"id":4}')"
+        echo "$PEER_RESULT" | grep -q '"result": true' || {
+            echo "[!] Peer port configuration failed: $PEER_RESULT"
+            exit 1
+        }
+    fi
+
+    THEME_RESULT="$(rpc '{"method":"web.set_theme","params":["dark"],"id":5}')"
     echo "$THEME_RESULT" | grep -Eq '"result": true|"error": null' || die "Theme API failed: $THEME_RESULT"
 
     if [ "$DEPLOYMENT_MODE" = 2 ]; then
@@ -529,7 +551,7 @@ EOF
     if [ -z "$PEER_PORT" ]; then
         echo "Peer port:     internal only"
     else
-        echo "Peer port:     $PEER_PORT"
+        echo "Peer port:     $PEER_PORT -> container 6881 (TCP/UDP)"
     fi
 }
 

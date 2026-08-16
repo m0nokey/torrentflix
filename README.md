@@ -155,6 +155,7 @@ http://SERVER_IP:32400/web
 ```
 
 For a headless VPS, the installer can optionally accept a short-lived Plex claim token from [plex.tv/claim](https://www.plex.tv/claim). Without a token, use the printed SSH tunnel for the first setup.
+The token is entered without echoing and cleared from the host-side `.env` after the container is created.
 
 VPS HSTS defaults to `max-age=63072000` for the selected hostname. `includeSubDomains` and `preload` are enabled only when explicitly requested during installation.
 
@@ -205,11 +206,31 @@ docker compose --env-file /opt/deluge/.env -f /opt/deluge/compose.yml down
 
 On macOS, use `$HOME/Downloads/deluge` instead of `/opt/deluge`.
 
+If you enabled an incoming peer port during installation, include the generated
+override file in every manual Compose command:
+
+```bash
+docker compose --env-file /opt/deluge/.env \
+  -f /opt/deluge/compose.yml \
+  -f /opt/deluge/compose.peer.yml ps
+```
+
+Use the same extra `-f /opt/deluge/compose.peer.yml` with `logs`, `up` and
+`down`. On macOS, replace `/opt/deluge` with `$HOME/Downloads/deluge`.
+
 VPS mode uses one Compose project for Deluge and Nginx:
 
 ```bash
 docker compose --env-file /opt/deluge/.env -f /opt/deluge/compose.vps.yml ps
 docker compose --env-file /opt/deluge/.env -f /opt/deluge/compose.vps.yml down
+```
+
+When a peer port is enabled in VPS mode, add the same generated override:
+
+```bash
+docker compose --env-file /opt/deluge/.env \
+  -f /opt/deluge/compose.vps.yml \
+  -f /opt/deluge/compose.peer.yml ps
 ```
 
 The named ACME volume `torrentflix_nginx_acme_state` is created automatically by Compose. Nginx proxies to the Docker service `deluge:8112`. In VPS mode Deluge port `8112` is not published on the host at all; the installer performs its WebUI check and password bootstrap from inside the Docker network.

@@ -6,6 +6,10 @@ The Plex image is pinned to a version and registry digest. Host networking is in
 
 The installer optionally asks for a Plex claim token. Get one at [plex.tv/claim](https://www.plex.tv/claim) and paste it immediately; the token is short-lived. If you leave it empty on a headless Linux server, use an SSH tunnel for the first setup:
 
+The token is entered without echoing and is removed from the host-side `.env`
+after the container is created. Plex receives it during first startup, but it is
+not kept in the project environment file.
+
 ```bash
 ssh -N -L 32400:127.0.0.1:32400 user@SERVER_IP
 ```

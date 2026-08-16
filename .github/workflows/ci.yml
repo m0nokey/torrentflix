@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: ShellCheck
         run: shellcheck --severity=error run.sh
@@ -22,13 +22,28 @@ jobs:
           docker compose -f deluge/compose.yml config --quiet
           docker compose -f deluge/compose.vps.yml config --quiet
           docker compose -f plex/compose.yml config --quiet
+          PEER_PORT=51413 docker compose \
+            -f deluge/compose.yml -f deluge/compose.peer.yml config --quiet
+          PEER_PORT=51413 docker compose \
+            -f deluge/compose.vps.yml -f deluge/compose.peer.yml config --quiet
+
+          lan_rendered="$(PEER_PORT=51413 docker compose \
+            -f deluge/compose.yml -f deluge/compose.peer.yml config)"
+          test "$(grep -c 'target: 8112' <<< "$lan_rendered")" -eq 1
+          test "$(grep -c 'target: 6881' <<< "$lan_rendered")" -eq 2
+
+          vps_rendered="$(PEER_PORT=51413 docker compose \
+            -f deluge/compose.vps.yml -f deluge/compose.peer.yml config)"
+          test "$(grep -c 'target: 6881' <<< "$vps_rendered")" -eq 2
+          test "$(grep -c 'target: 80' <<< "$vps_rendered")" -eq 1
+          test "$(grep -c 'target: 443' <<< "$vps_rendered")" -eq 1
 
   build:
     runs-on: ubuntu-latest
     needs: validate
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Prepare pinned Deluge theme
         shell: bash
