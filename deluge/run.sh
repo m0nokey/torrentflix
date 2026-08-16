@@ -95,6 +95,7 @@ NGINX_RUNTIME_CONF="$INSTALL_ROOT/nginx/conf.d.runtime"
 COMPOSE_FILE="$INSTALL_ROOT/compose.yml"
 
 declare -a EXISTING_STACKS=()
+declare -a EXISTING_ROOTS=()
 declare -a CANDIDATE_ROOTS=("/opt/deluge")
 if [ -n "${HOME:-}" ]; then
     CANDIDATE_ROOTS+=("$HOME/Downloads/deluge")
@@ -108,6 +109,15 @@ for candidate_root in "${CANDIDATE_ROOTS[@]}"; do
     do
         if [ -f "$candidate_file" ] && compose_is_running "$candidate_file"; then
             EXISTING_STACKS+=("$candidate_file")
+            case "$candidate_file" in
+                */nginx/compose.yml) existing_root="${candidate_file%/nginx/compose.yml}" ;;
+                *) existing_root="${candidate_file%/*}" ;;
+            esac
+            already_listed=0
+            for listed_root in "${EXISTING_ROOTS[@]}"; do
+                [ "$listed_root" = "$existing_root" ] && already_listed=1
+            done
+            [ "$already_listed" = 1 ] || EXISTING_ROOTS+=("$existing_root")
         fi
     done
 done
@@ -120,10 +130,10 @@ if [ "${#EXISTING_STACKS[@]}" -gt 0 ]; then
         printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "   Running: $existing_stack" "$COLOR_RESET"
     done
     echo
-    printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "   Containers will be stopped and removed. Config, password and downloads will be kept." "$COLOR_RESET"
+    printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "   Install keeps config, password and downloads." "$COLOR_RESET"
     echo
-    printf '%s%s.%s %s%s%s\n' "$COLOR_LINE" "1" "$COLOR_RESET" "$COLOR_TEXT" "Stop it and continue installation" "$COLOR_RESET"
-    printf '%s%s.%s %s%s%s\n' "$COLOR_LINE" "2" "$COLOR_RESET" "$COLOR_TEXT" "Cancel" "$COLOR_RESET"
+    printf '%s%s.%s %s%s%s\n' "$COLOR_LINE" "1" "$COLOR_RESET" "$COLOR_TEXT" "Install" "$COLOR_RESET"
+    printf '%s%s.%s %s%s%s\n' "$COLOR_LINE" "2" "$COLOR_RESET" "$COLOR_TEXT" "Delete" "$COLOR_RESET"
     echo
     read -r -p "?: " STOP_EXISTING
     STOP_EXISTING="${STOP_EXISTING:-1}"
@@ -135,7 +145,21 @@ if [ "${#EXISTING_STACKS[@]}" -gt 0 ]; then
                 stop_compose_stack "$existing_stack"
             done
             ;;
-        2) exit 0 ;;
+        2)
+            echo
+            printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "Delete removes the runtime directory, config and password." "$COLOR_RESET"
+            printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "Downloads outside that directory are not touched." "$COLOR_RESET"
+            read -r -p "Type DELETE to confirm: " DELETE_CONFIRM
+            [ "$DELETE_CONFIRM" = "DELETE" ] || exit 0
+            for existing_stack in "${EXISTING_STACKS[@]}"; do
+                stop_compose_stack "$existing_stack" || true
+            done
+            for existing_root in "${EXISTING_ROOTS[@]}"; do
+                rm -rf "$existing_root"
+                echo "[+] Deleted $existing_root"
+            done
+            exit 0
+            ;;
         *) die "Choose 1 or 2" ;;
     esac
 fi
