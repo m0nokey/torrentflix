@@ -15,10 +15,8 @@ services:
     volumes:
       - ${DELUGE_ROOT:-/opt/deluge}/config:/config
       - ${DOWNLOAD_DIR:-/mnt/downloads}:/downloads
-    ports:
-      - "127.0.0.1:${WEB_PORT:-8112}:8112"
-
     expose:
+      - "8112"
       - "6881"
       - "6881/udp"
     read_only: true

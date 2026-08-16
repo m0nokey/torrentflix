@@ -219,7 +219,8 @@ Do not use `--remove-source-files` until you have confirmed that completed torre
 - Do not expose Deluge port `8112` directly to the public Internet.
 - VPS mode publishes HTTPS through Nginx and keeps Deluge on localhost.
 - macOS mode binds the WebUI to localhost through Docker Desktop.
-- Port `6881` is for incoming BitTorrent traffic; remove its mappings if not needed.
+- Port `6881` is for incoming BitTorrent traffic and remains internal to the container.
+- In VPS mode, Deluge WebUI port `8112` is also internal; bundled Nginx is the only public entry point.
 - Docker isolation reduces risk but does not replace host updates, backups or careful handling of downloaded files.
 
 </details>
