@@ -81,7 +81,7 @@ What would you like to install?
 
 ### Deluge
 
-The installer opens a simple menu:
+Choose **Deluge** in the root menu. The installer then opens a simple deployment menu:
 
 ```text
 Torrentflix Deluge
@@ -111,11 +111,7 @@ If a Torrentflix stack is already running, the installer offers `Install` or `De
 
 ### Plex
 
-```bash
-cd plex
-chmod +x run.sh
-./run.sh
-```
+Choose **Plex** in the root menu and enter the media directory.
 
 Plex asks one simple question:
 
