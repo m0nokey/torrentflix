@@ -8,11 +8,28 @@ ENV_FILE="$INSTALL_ROOT/.env"
 
 command -v docker >/dev/null || { echo "[!] Docker is required" >&2; exit 1; }
 
+if [ -t 1 ]; then
+    COLOR_RESET=$'\033[0m'
+    COLOR_LINE=$'\033[38;5;117m'
+else
+    COLOR_RESET=''
+    COLOR_LINE=''
+fi
+
+if command -v clear >/dev/null 2>&1 && [ -t 1 ]; then
+    clear
+else
+    printf '\033c'
+fi
+printf '%s%s%s\n' "$COLOR_LINE" "Torrentflix Plex" "$COLOR_RESET"
+echo
+
 DEFAULT_MEDIA="/mnt/plexmedia"
 
 ROOT="$INSTALL_ROOT"
 
-read -r -p "Media directory [$DEFAULT_MEDIA]: " MEDIA_INPUT
+printf '%sMedia directory [%s]: %s' "$COLOR_LINE" "$DEFAULT_MEDIA" "$COLOR_RESET"
+read -r MEDIA_INPUT
 MEDIA_DIR="${MEDIA_INPUT:-$DEFAULT_MEDIA}"
 case "$MEDIA_DIR" in
     /*) ;;

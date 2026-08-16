@@ -39,14 +39,6 @@ Click a preview to open the full-size image.
 | Watch media at home | **Plex in LAN mode** | Your own library at `http://SERVER_IP:32400/web` |
 | Watch media remotely | **Plex on a VPS** | Plex with local, NAS or synchronized storage |
 
-## Why run Deluge in Docker?
-
-Torrent clients are third-party software and, like browsers or media players, can contain security bugs. Deluge has had documented WebUI vulnerabilities, including [CVE-2021-3427](https://nvd.nist.gov/vuln/detail/CVE-2021-3427), which involved a crafted torrent file and the WebUI. Older Deluge versions also had plugin-related issues.
-
-This does not mean that every torrent client is compromised. It means that installing random clients, plugins or builds directly on your personal computer is an unnecessary risk.
-
-Torrentflix reduces the impact of a problem with Docker isolation, a random WebUI password, a read-only root filesystem, reduced Linux capabilities and no public WebUI in VPS mode. This is risk reduction, not a guarantee of perfect security.
-
 ## Quick start
 
 Requirements: Docker Engine with Compose on Linux, or Docker Desktop on macOS, plus `curl`, `tar` and `openssl`.
@@ -58,6 +50,26 @@ cd deluge
 chmod +x run.sh
 ./run.sh
 ```
+
+The installer opens a simple menu:
+
+```text
+Torrentflix Deluge
+
+Select deployment mode.
+
+1. VPS / public HTTPS access
+   Requires a domain pointing to this VPS and open ports 80/443.
+   Bundled Nginx obtains and renews the Let's Encrypt certificate.
+2. LAN / local network access
+   No domain and no Nginx required. Open http://SERVER_IP:8112.
+3. macOS / Docker Desktop
+   No root access, domain, or Nginx required. Open http://localhost:8112.
+
+?:
+```
+
+The real terminal menu uses the same Nitka-style colors as the rest of the installer.
 
 The installer offers:
 
@@ -73,6 +85,14 @@ If a Torrentflix stack is already running, the installer offers `Install` or `De
 cd plex
 chmod +x run.sh
 ./run.sh
+```
+
+Plex asks one simple question:
+
+```text
+Torrentflix Plex
+
+Media directory [/mnt/plexmedia]:
 ```
 
 Choose a local directory or a host-mounted NAS directory for media. Plex is available at:
@@ -93,6 +113,20 @@ http://SERVER_IP:32400/web
 
 <details>
 <summary>Open technical details</summary>
+
+### Why use an isolated torrent client?
+
+Torrent clients process torrent files, magnet metadata, tracker responses and data supplied by peers. Bugs in that processing can affect a machine even when no WebUI is exposed.
+
+For example:
+
+- **qBittorrent CVE-2025-54310 — Medium, CVSS 5.3** — versions before `5.1.2` did not properly prevent access to a local file referenced through a link URL in RSS/search functionality. See the [NVD record](https://nvd.nist.gov/vuln/detail/CVE-2025-54310).
+- **qBittorrent CVE-2024-51774 — High, CVSS 8.1** — versions before `5.0.1` continued using HTTPS URLs after certificate validation errors. This created a path for traffic interception or tampering in affected download/RSS operations. See the [NVD record](https://nvd.nist.gov/vuln/detail/CVE-2024-51774).
+- **Net::BitTorrent CVE-2026-57079** — versions through `2.0.1` could write files outside the download directory using malicious peer-supplied metadata. The NVD describes attacker-controlled file writes and possible code execution when the written content is later run. See the [NVD record](https://nvd.nist.gov/vuln/detail/CVE-2026-57079).
+
+These examples do not mean that every current torrent client is compromised. They show why it is safer to use official, pinned builds, avoid random plugins and reduce the permissions and filesystem access of the client.
+
+Torrentflix reduces the impact of a problem with Docker isolation, a random WebUI password, a read-only root filesystem, reduced Linux capabilities and limited host mounts. This is risk reduction, not a guarantee of perfect security.
 
 ### Runtime paths
 
