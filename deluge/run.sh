@@ -112,23 +112,29 @@ rpc() {
         -H 'Content-Type: application/json' --data-binary @- "$WEB_URL"
 }
 
-LOGIN="$(rpc '{"method":"auth.login","params":["deluge"],"id":1}')"
-echo "$LOGIN" | grep -q '"result": true' || die "Default login failed: $LOGIN"
+LOGIN="$(rpc "{\"method\":\"auth.login\",\"params\":[\"$WEB_PASSWORD\"],\"id\":1}")"
 
-echo "[+] Changing WebUI password..."
-PASSWORD_RESULT="$(
-    printf '%s' \
-        "{\"method\":\"auth.change_password\",\"params\":[\"deluge\",\"$WEB_PASSWORD\"],\"id\":2}" |
-    curl -fsS -c "$COOKIE" -b "$COOKIE" \
-        -H 'Content-Type: application/json' --data-binary @- "$WEB_URL"
-)"
-echo "$PASSWORD_RESULT" | grep -q '"result": true' || {
-    echo "[!] Password change failed: $PASSWORD_RESULT"
-    exit 1
-}
+if echo "$LOGIN" | grep -q '"result": true'; then
+    echo "[+] Existing WebUI password accepted"
+else
+    LOGIN="$(rpc '{"method":"auth.login","params":["deluge"],"id":1}')"
+    echo "$LOGIN" | grep -q '"result": true' || die "WebUI login failed: $LOGIN"
+
+    echo "[+] Changing WebUI password..."
+    PASSWORD_RESULT="$(
+        printf '%s' \
+            "{\"method\":\"auth.change_password\",\"params\":[\"deluge\",\"$WEB_PASSWORD\"],\"id\":2}" |
+        curl -fsS -c "$COOKIE" -b "$COOKIE" \
+            -H 'Content-Type: application/json' --data-binary @- "$WEB_URL"
+    )"
+    echo "$PASSWORD_RESULT" | grep -q '"result": true' || {
+        echo "[!] Password change failed: $PASSWORD_RESULT"
+        exit 1
+    }
+fi
 
 THEME_RESULT="$(rpc '{"method":"web.set_theme","params":["dark"],"id":3}')"
-echo "$THEME_RESULT" | grep -q '"result": true' || die "Theme API failed: $THEME_RESULT"
+echo "$THEME_RESULT" | grep -Eq '"result": true|"error": null' || die "Theme API failed: $THEME_RESULT"
 
 if [ "$DEPLOYMENT_MODE" = 2 ]; then
     echo
