@@ -13,7 +13,7 @@ services:
       TZ: ${TZ:-Etc/UTC}
       DELUGE_LOGLEVEL: ${DELUGE_LOGLEVEL:-info}
     volumes:
-      - ./config:/config
+      - ${DELUGE_ROOT:-/opt/deluge}/config:/config
       - ${DOWNLOAD_DIR:-/mnt/downloads}:/downloads
     ports:
       - "${WEB_PORT:-8112}:8112"

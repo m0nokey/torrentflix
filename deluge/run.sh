@@ -3,13 +3,14 @@ set -euo pipefail
 
 PROJECT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 NGINX_DIR="$PROJECT_DIR/nginx"
-CONFIG_DIR="$PROJECT_DIR/config"
+INSTALL_ROOT="/opt/deluge"
+CONFIG_DIR="$INSTALL_ROOT/config"
 THEME_DIR="$PROJECT_DIR/theme"
-SECRETS_DIR="$PROJECT_DIR/secrets"
+SECRETS_DIR="$INSTALL_ROOT/secrets"
 PASSWORD_FILE="$SECRETS_DIR/webui.password"
-ENV_FILE="$PROJECT_DIR/.env"
-NGINX_ENV_FILE="$NGINX_DIR/.env"
-NGINX_RUNTIME_CONF="$NGINX_DIR/conf.d.runtime"
+ENV_FILE="$INSTALL_ROOT/.env"
+NGINX_ENV_FILE="$INSTALL_ROOT/nginx/.env"
+NGINX_RUNTIME_CONF="$INSTALL_ROOT/nginx/conf.d.runtime"
 IMAGE="lscr.io/linuxserver/deluge:2.2.0"
 WEB_DIR="/lsiopy/lib/python3.12/site-packages/deluge/ui/web"
 THEME_URL="https://github.com/joelacus/deluge-web-dark-theme/raw/main/deluge_web_dark_theme.tar.gz"
@@ -19,6 +20,20 @@ command -v docker >/dev/null || die "Docker is required"
 command -v curl >/dev/null || die "curl is required"
 command -v tar >/dev/null || die "tar is required"
 command -v openssl >/dev/null || die "openssl is required"
+
+mkdir -p "$INSTALL_ROOT"
+
+# Migrate runtime data from an older checkout-based installation.
+if [ "$PROJECT_DIR/config" != "$CONFIG_DIR" ] && [ -d "$PROJECT_DIR/config" ] && [ ! -e "$CONFIG_DIR/.migrated" ]; then
+    mkdir -p "$CONFIG_DIR"
+    cp -a "$PROJECT_DIR/config/." "$CONFIG_DIR/"
+    touch "$CONFIG_DIR/.migrated"
+fi
+if [ "$PROJECT_DIR/secrets" != "$SECRETS_DIR" ] && [ -f "$PROJECT_DIR/secrets/webui.password" ] && [ ! -f "$PASSWORD_FILE" ]; then
+    mkdir -p "$SECRETS_DIR"
+    cp -a "$PROJECT_DIR/secrets/webui.password" "$PASSWORD_FILE"
+    chmod 600 "$PASSWORD_FILE"
+fi
 
 echo "Select deployment mode:"
 echo "  1) VPS: Deluge + bundled Nginx + automatic Let's Encrypt certificate"
@@ -58,6 +73,7 @@ cat > "$ENV_FILE" <<EOF
 DOWNLOAD_DIR=$DOWNLOAD_DIR
 DELUGE_IMAGE=$IMAGE
 WEB_DIR=$WEB_DIR
+DELUGE_ROOT=$INSTALL_ROOT
 PUID=$PUID
 PGID=$PGID
 WEB_PORT=8112
@@ -81,11 +97,10 @@ curl -fsSL "$THEME_URL" | tar -xz -C "$THEME_DIR"
 [ -d "$THEME_DIR/images" ] || die "Theme images are missing"
 [ -f "$THEME_DIR/themes/css/xtheme-dark.css" ] || die "Theme CSS is missing"
 
-cd "$PROJECT_DIR"
 echo "[+] Building Deluge image..."
-docker compose --env-file "$ENV_FILE" -f compose.yml build --pull
+docker compose --env-file "$ENV_FILE" -f "$PROJECT_DIR/compose.yml" build --pull
 echo "[+] Starting Deluge..."
-docker compose --env-file "$ENV_FILE" -f compose.yml up -d
+docker compose --env-file "$ENV_FILE" -f "$PROJECT_DIR/compose.yml" up -d
 
 echo "[+] Waiting for Deluge WebUI..."
 READY=0
@@ -98,7 +113,7 @@ for _ in $(seq 1 60); do
 done
 
 if [ "$READY" != 1 ]; then
-    docker compose --env-file "$ENV_FILE" -f compose.yml logs --tail=100 deluge
+    docker compose --env-file "$ENV_FILE" -f "$PROJECT_DIR/compose.yml" logs --tail=100 deluge
     die "WebUI failed"
 fi
 
@@ -172,7 +187,7 @@ EOF
     sed -i \
         -e "s/^PRIMARY_DOMAIN=.*/PRIMARY_DOMAIN=$DOMAIN/" \
         -e "s/^WWW_DOMAIN=.*/WWW_DOMAIN=$WWW_DOMAIN/" \
-        -e "s#^NGINX_CONF_DIR=.*#NGINX_CONF_DIR=./conf.d.runtime#" \
+        -e "s#^NGINX_CONF_DIR=.*#NGINX_CONF_DIR=$NGINX_RUNTIME_CONF#" \
         "$NGINX_ENV_FILE"
     chmod 600 "$NGINX_ENV_FILE"
 
@@ -188,11 +203,12 @@ else
     sed "s/domain\.com/$DOMAIN/g" \
         "$NGINX_DIR/conf.d/domain.com.conf" > "$NGINX_RUNTIME_CONF/$DOMAIN.conf"
 
+    mkdir -p "$(dirname "$NGINX_ENV_FILE")"
     cp "$NGINX_DIR/.env.example" "$NGINX_ENV_FILE"
     sed -i \
         -e "s/^PRIMARY_DOMAIN=.*/PRIMARY_DOMAIN=$DOMAIN/" \
         -e "s/^WWW_DOMAIN=.*/WWW_DOMAIN=$WWW_DOMAIN/" \
-        -e "s#^NGINX_CONF_DIR=.*#NGINX_CONF_DIR=./conf.d.runtime#" \
+        -e "s#^NGINX_CONF_DIR=.*#NGINX_CONF_DIR=$NGINX_RUNTIME_CONF#" \
         "$NGINX_ENV_FILE"
     chmod 600 "$NGINX_ENV_FILE"
 
@@ -200,8 +216,8 @@ else
     docker volume inspect nginx_acme_state >/dev/null 2>&1 || docker volume create nginx_acme_state >/dev/null
     docker network connect edge deluge >/dev/null 2>&1 || true
 
-    (cd "$NGINX_DIR" && docker compose --env-file .env -f compose.yml build --pull)
-    (cd "$NGINX_DIR" && docker compose --env-file .env -f compose.yml up -d)
+    docker compose --env-file "$NGINX_ENV_FILE" -f "$NGINX_DIR/compose.yml" build --pull
+    docker compose --env-file "$NGINX_ENV_FILE" -f "$NGINX_DIR/compose.yml" up -d
 
     echo
     echo "Deluge and bundled Nginx are running."

@@ -63,13 +63,15 @@ chmod +x run.sh
 
 The installer asks where downloads should be stored. The default is `/mnt/downloads`; the directory is created automatically if it does not exist.
 
+The repository is only used as the build source. Deluge runtime data is always stored under `/opt/deluge`, including its configuration, generated environment file, password and Nginx runtime configuration.
+
 The installer also asks for a deployment mode:
 
 1. **VPS + bundled Nginx** — starts Deluge and the included Nginx container, then obtains a Let's Encrypt certificate automatically. A public domain is required.
 2. **LAN/direct access** — starts Deluge only. No Nginx and no domain are required; access the WebUI directly on port `8112`.
 3. **Existing Nginx** — starts Deluge only and generates a reverse-proxy configuration for an Nginx installation that you already manage. A domain is required.
 
-The generated domain-specific configuration and Nginx `.env` file are placed under `deluge/nginx/` when mode 1 or mode 3 is selected.
+The generated domain-specific configuration and Nginx `.env` file are placed under `/opt/deluge/nginx/` when mode 1 or mode 3 is selected.
 
 For VPS mode, the domain must resolve to the VPS and inbound TCP ports `80` and `443` must be reachable from the Internet. The bundled Nginx uses the ACME HTTP-01 challenge and serves the WebUI at:
 
@@ -88,15 +90,15 @@ For existing-Nginx mode, copy or include the generated configuration in your exi
 After installation, the WebUI password is available in:
 
 ```text
-deluge/secrets/webui.password
+/opt/deluge/secrets/webui.password
 ```
 
 Manage the service with:
 
 ```bash
-docker compose --env-file deluge/.env -f deluge/compose.yml ps
-docker compose --env-file deluge/.env -f deluge/compose.yml logs -f deluge
-docker compose --env-file deluge/.env -f deluge/compose.yml down
+docker compose --env-file /opt/deluge/.env -f deluge/compose.yml ps
+docker compose --env-file /opt/deluge/.env -f deluge/compose.yml logs -f deluge
+docker compose --env-file /opt/deluge/.env -f deluge/compose.yml down
 ```
 
 ## Storage layout
@@ -235,7 +237,7 @@ Port `6881` is used for incoming BitTorrent connections. If incoming connections
 
 The directories `config/`, `secrets/`, `.env` and the downloaded theme are excluded from Git. Never commit `secrets/`.
 
-The generated `deluge/nginx/.env` and `deluge/nginx/conf.d.runtime/` files are also local runtime files and are excluded from Git. The committed `deluge/nginx/.env.example` contains only placeholder values.
+The generated `/opt/deluge/nginx/.env` and `/opt/deluge/nginx/conf.d.runtime/` files are runtime files and are not part of the repository. The committed `deluge/nginx/.env.example` contains only placeholder values.
 
 ## Updating
 
@@ -245,7 +247,7 @@ The application version is pinned to `2.2.0`. When a new stable Deluge release b
 ./deluge/run.sh
 ```
 
-Deluge configuration is stored in `deluge/config/`; downloaded data remains in the selected host directory.
+Deluge configuration is stored in `/opt/deluge/config/`; downloaded data remains in the selected host directory.
 
 The supported Deluge installer is `deluge/run.sh`. The Plex installer is `plex/run.sh`. Runtime files, secrets and downloaded assets are excluded from Git.
 
