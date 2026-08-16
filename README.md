@@ -58,13 +58,28 @@ Click a preview to open the full-size image.
 
 Requirements: Docker Engine with Compose on Linux, or Docker Desktop on macOS, plus `curl`, `tar` and `openssl`.
 
-### Deluge
+### Start Torrentflix
 
 ```bash
-cd deluge
-chmod +x run.sh
 ./run.sh
 ```
+
+The root launcher asks what you want to install:
+
+```text
+Torrentflix
+
+What would you like to install?
+
+1. Deluge
+   Download files with magnet links or torrent files.
+2. Plex
+   Stream your media library on your server.
+
+?:
+```
+
+### Deluge
 
 The installer opens a simple menu:
 
