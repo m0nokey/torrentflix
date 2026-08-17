@@ -110,10 +110,24 @@ jobs:
               local attempts="$2"
               local delay="$3"
               local attempt
+              local status
 
               for ((attempt = 1; attempt <= attempts; attempt++)); do
-                  if curl --fail --silent --show-error "$url" >/dev/null; then
-                      return 0
+                  if status="$(curl \
+                      --silent \
+                      --show-error \
+                      --output /dev/null \
+                      --write-out '%{http_code}' \
+                      "$url")"; then
+                      printf '[smoke] GET %s -> HTTP %s (attempt %s/%s)\n' \
+                          "$url" "$status" "$attempt" "$attempts"
+
+                      if [[ "$status" =~ ^[23][0-9]{2}$ ]]; then
+                          return 0
+                      fi
+                  else
+                      printf '[smoke] GET %s -> connection failed (attempt %s/%s)\n' \
+                          "$url" "$attempt" "$attempts"
                   fi
 
                   sleep "$delay"
@@ -128,11 +142,25 @@ jobs:
               local attempts="$3"
               local delay="$4"
               local attempt
+              local status
 
               for ((attempt = 1; attempt <= attempts; attempt++)); do
-                  if docker exec "$container_name" \
-                      curl --fail --silent --show-error "$url" >/dev/null; then
-                      return 0
+                  if status="$(docker exec "$container_name" \
+                      curl \
+                      --silent \
+                      --show-error \
+                      --output /dev/null \
+                      --write-out '%{http_code}' \
+                      "$url")"; then
+                      printf '[smoke] GET %s via %s -> HTTP %s (attempt %s/%s)\n' \
+                          "$url" "$container_name" "$status" "$attempt" "$attempts"
+
+                      if [[ "$status" =~ ^[23][0-9]{2}$ ]]; then
+                          return 0
+                      fi
+                  else
+                      printf '[smoke] GET %s via %s -> connection failed (attempt %s/%s)\n' \
+                          "$url" "$container_name" "$attempt" "$attempts"
                   fi
 
                   sleep "$delay"
@@ -152,6 +180,8 @@ jobs:
                   health_status="$(docker inspect \
                       --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' \
                       "$container_name" 2>/dev/null || true)"
+                  printf '[smoke] %s health -> %s (attempt %s/%s)\n' \
+                      "$container_name" "$health_status" "$attempt" "$attempts"
 
                   if [[ "$health_status" == healthy ]]; then
                       return 0
