@@ -598,6 +598,10 @@ install_deluge_files() {
 
     cp "$SCRIPT_DIR/deluge/compose.vps.yml" "$VPS_COMPOSE_FILE"
     mkdir -p -- "$NGINX_RUNTIME_CONF" "$NGINX_DIR/www"
+    cp -R "$SCRIPT_DIR/deluge/nginx/www/." "$NGINX_DIR/www/"
+    sed "s|__DOMAIN__|$DOMAIN|g" \
+        "$NGINX_DIR/www/html/index.html" > "$NGINX_DIR/www/html/index.html.tmp"
+    mv "$NGINX_DIR/www/html/index.html.tmp" "$NGINX_DIR/www/html/index.html"
     cp "$SCRIPT_DIR/deluge/nginx/Dockerfile" "$NGINX_DIR/Dockerfile"
     sed "s|__HSTS_POLICY__|$HSTS_POLICY|g" "$SCRIPT_DIR/deluge/nginx/nginx.conf" > "$NGINX_DIR/nginx.conf"
     cp "$SCRIPT_DIR/deluge/nginx/conf.d/00-acme.conf" "$NGINX_RUNTIME_CONF/00-acme.conf"
