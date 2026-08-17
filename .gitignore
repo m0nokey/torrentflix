@@ -19,6 +19,11 @@ nginx/www/
 **/nginx/conf.d.runtime/
 **/nginx/www/
 
+# Versioned public landing page served by the bundled Nginx
+!deluge/nginx/www/
+!deluge/nginx/www/html/
+!deluge/nginx/www/html/**
+
 # OS/editor files
 .DS_Store
 **/.DS_Store
