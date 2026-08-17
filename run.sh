@@ -719,27 +719,26 @@ bootstrap_deluge() {
 
 print_deluge_result() {
     clear_terminal
-    printf 'Runtime root:   %s\n' "$DELUGE_ROOT"
+    printf 'Runtime:        %s\n' "$DELUGE_ROOT"
+    printf 'Credentials:    %s\n\n' "$PASSWORD_FILE"
 
     case "$MODE" in
         vps)
-            printf 'WebUI URL:     https://%s/deluge/\n' "$DOMAIN"
+            printf 'WebUI URL:      https://%s/deluge/\n' "$DOMAIN"
             ;;
         home_server)
-            printf '%s\n' 'WebUI URL:     http://SERVER_IP:8112'
+            printf '%s\n' 'WebUI URL:      http://SERVER_IP:8112'
             ;;
         local)
-            printf '%s\n' 'WebUI URL:     http://localhost:8112'
+            printf '%s\n' 'WebUI URL:      http://localhost:8112'
             ;;
         *)
             die "Unsupported installation mode: $MODE"
             ;;
     esac
 
-    printf 'Password file:  %s\n' "$PASSWORD_FILE"
-    printf 'WebUI password: %s\n' "$WEB_PASSWORD"
+    printf 'WebUI pass:     %s\n\n' "$WEB_PASSWORD"
     printf 'Downloads:      %s\n' "$DOWNLOAD_DIR"
-    printf '%s\n' 'Peer traffic:   Docker internal only'
 }
 
 install_deluge() {
