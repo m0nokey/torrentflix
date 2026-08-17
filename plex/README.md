@@ -1,132 +1,76 @@
-# Plex Media Server
+# Torrentflix Plex
 
-Docker Compose configuration for Plex Media Server using host networking.
+Plex is available in **VPS (Public Server)** and **Home Server (LAN Only)**
+mode. It is intentionally not part of **Local (macOS/Linux)** mode.
 
-Plex is a server-only component in Torrentflix. It is available in VPS and
-Home Server modes, not in Local macOS/Linux mode.
+Run `./run.sh` from the repository root, select a server mode and choose Plex.
+The installer creates the service root, detects mounted storage, asks for an
+existing media path or creates its managed fallback. No manual `mkdir`,
+`chown`, UID or GID preparation is required.
 
-The Plex image is pinned to a version and registry digest. Host networking is intentional: it provides the simplest setup for LAN discovery and Plex client compatibility. This gives Plex a wider network view than the hardened Deluge container.
+## Runtime layout
 
-The installer optionally asks for a Plex claim token. Get one at [plex.tv/claim](https://www.plex.tv/claim) and paste it immediately; the token is short-lived. If you leave it empty on a headless Linux server, use an SSH tunnel for the first setup:
+```text
+/opt/torrentflix/plex/
+    compose.yml
+    .env
+    config/
+    transcode/
+    media/       # only when the managed fallback is selected
+```
 
-The token is entered without echoing and is removed from the host-side `.env`
-after the container is created. Plex receives it during first startup, but it is
-not kept in the project environment file.
+Plex config and transcoding are private to Plex. The selected media directory
+is mounted into the container as `/mnt/plexmedia:ro`.
+
+The official Plex image is pinned to a version and registry digest. Host
+networking is intentional for Plex discovery and client compatibility, so Plex
+has a wider network view than the hardened Deluge container. Resource limits,
+`tmpfs` and `no-new-privileges` are enabled, while `read_only` and blanket
+capability removal are not used because Plex must write its database, cache and
+transcode state.
+
+## Claim token
+
+The installer accepts an optional short-lived token from
+[plex.tv/claim](https://www.plex.tv/claim) without echoing it. It removes the
+token from the host `.env` after the container is created.
+
+Without a token on a headless server, use the printed tunnel:
 
 ```bash
 ssh -N -L 32400:127.0.0.1:32400 user@SERVER_IP
 ```
 
-Then open `http://localhost:32400/web`. The installer does not publish a separate Plex port because host networking is used.
+Then open <http://localhost:32400/web>.
 
-The project supports a local media directory or a NAS share mounted on the Docker host through SMB/CIFS or NFS.
+## NAS media
 
-## Setup
+Mount the NAS on the Docker host first, then select the mount path in the
+installer. Torrentflix does not mount SMB/NFS from inside Docker and does not
+modify ownership or permissions of external media paths.
 
-```bash
-cd /path/to/torrentflix
-chmod +x run.sh
-sudo ./run.sh
-```
-
-From the repository root, select **VPS (Public Server)** or **Home Server (LAN
-Only)**, then choose **Plex**. The script installs the runnable Compose project
-under `/opt/torrentflix` and asks for an optional claim token and media
-directory. The default media directory is `/srv/torrentflix/media`.
-
-Manual startup:
-
-```bash
-PLEX_ROOT=/opt/torrentflix/compose
-docker compose \
-  --env-file "$PLEX_ROOT/.env" \
-  -f "$PLEX_ROOT/plex.compose.yml" \
-  up -d
-```
-
-Plex is available on the host network at:
-
-```text
-http://SERVER_IP:32400/web
-```
-
-The Plex database and transcoding files are stored under
-`/opt/torrentflix/plex/`. The media library is mounted inside the container at
-`/mnt/plexmedia`.
-
-The container has resource limits, `no-new-privileges` and a `tmpfs` for `/tmp`. It intentionally does not use `read_only` or `cap_drop: ALL`, because Plex writes to its database, cache and transcoding paths during normal operation.
-
-## Storage layout
-
-```text
-NAS share (SMB/CIFS or NFS)
-             |
-             | mounted by /etc/fstab
-             v
-Docker host: /srv/torrentflix/media
-             |
-             | bind mount
-             v
-Plex container: /mnt/plexmedia
-```
-
-Mount the NAS share on the Docker host before starting Plex. Do not mount SMB/NFS from inside the container.
-
-## SMB/CIFS mount
-
-```bash
-sudo apt-get update
-sudo apt-get install -y cifs-utils
-sudo mkdir -p /srv/torrentflix/media
-```
-
-Example `/etc/fstab` entry with fictional values:
+Example SMB `/etc/fstab` entry:
 
 ```fstab
-//192.0.2.70/media /srv/torrentflix/media cifs vers=3.1.1,username=plex-nas,password=ChangeThisExamplePassword,iocharset=utf8,file_mode=0770,dir_mode=0770,noperm,_netdev,x-systemd.automount 0 0
+//192.0.2.70/media /mnt/media cifs vers=3.1.1,username=plex-media,password=ChangeThisExamplePassword,iocharset=utf8,file_mode=0770,dir_mode=0770,noperm,_netdev,x-systemd.automount 0 0
 ```
 
-For production, use a protected credentials file:
-
-```bash
-sudo install -m 600 /dev/null /root/.smb-plex
-sudo sh -c 'printf "%s\n" "username=plex-nas" "password=ChangeThisExamplePassword" > /root/.smb-plex'
-```
+Example NFS `/etc/fstab` entry:
 
 ```fstab
-//192.0.2.70/media /srv/torrentflix/media cifs vers=3.1.1,credentials=/root/.smb-plex,iocharset=utf8,file_mode=0770,dir_mode=0770,noperm,_netdev,x-systemd.automount 0 0
+192.0.2.80:/export/media /mnt/media nfs4 ro,_netdev,noatime,x-systemd.automount,x-systemd.requires=network-online.target 0 0
 ```
 
-## NFS mount
+External paths are tracked as `MEDIA_MANAGED=false` and are never chowned,
+chmodded, recursively changed or deleted by uninstall. If the managed
+fallback `/opt/torrentflix/plex/media` is selected, it is marked as
+Torrentflix-owned and still preserved during a normal configuration removal.
+
+## Manual commands
 
 ```bash
-sudo apt-get update
-sudo apt-get install -y nfs-common
-sudo mkdir -p /srv/torrentflix/media
-```
-
-Example `/etc/fstab` entry with fictional values:
-
-```fstab
-192.0.2.80:/export/media /srv/torrentflix/media nfs4 rw,_netdev,noatime,x-systemd.automount,x-systemd.requires=network-online.target 0 0
-```
-
-Test either mount before starting Plex:
-
-```bash
-sudo systemctl daemon-reload
-sudo mount /srv/torrentflix/media
-mountpoint /srv/torrentflix/media
-touch /srv/torrentflix/media/.plex-write-test
-rm /srv/torrentflix/media/.plex-write-test
-```
-
-Make sure the user or UID/GID used by Plex has read access to the media share. If Plex must create or modify files, it also needs write permission.
-
-## Updating
-
-```bash
-PLEX_ROOT=/opt/torrentflix/compose
-docker compose --env-file "$PLEX_ROOT/.env" -f "$PLEX_ROOT/plex.compose.yml" pull
-docker compose --env-file "$PLEX_ROOT/.env" -f "$PLEX_ROOT/plex.compose.yml" up -d
+PLEX_ROOT=/opt/torrentflix/plex
+docker compose --env-file "$PLEX_ROOT/.env" -f "$PLEX_ROOT/compose.yml" ps
+docker compose --env-file "$PLEX_ROOT/.env" -f "$PLEX_ROOT/compose.yml" logs -f plex-server
+docker compose --env-file "$PLEX_ROOT/.env" -f "$PLEX_ROOT/compose.yml" down
 ```

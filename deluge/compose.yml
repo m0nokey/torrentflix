@@ -8,13 +8,13 @@ services:
         WEB_DIR: ${WEB_DIR:-/lsiopy/lib/python3.12/site-packages/deluge/ui/web}
     container_name: deluge
     environment:
-      PUID: ${DELUGE_UID:-1000}
-      PGID: ${DELUGE_GID:-1000}
+      PUID: ${DELUGE_UID:-10001}
+      PGID: ${DELUGE_GID:-10000}
       TZ: ${TZ:-Etc/UTC}
       DELUGE_LOGLEVEL: ${DELUGE_LOGLEVEL:-info}
     volumes:
       - ${DELUGE_CONFIG_DIR:-/opt/torrentflix/deluge/config}:/config
-      - ${DOWNLOAD_DIR:-/srv/torrentflix/downloads}:/downloads
+      - ${DOWNLOAD_DIR:-/opt/torrentflix/deluge/downloads}:/downloads
     ports:
       - "${WEB_BIND_IP:-0.0.0.0}:${WEB_PORT:-8112}:8112"
 

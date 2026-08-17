@@ -12,7 +12,7 @@ services:
     volumes:
       - ${PLEX_CONFIG_DIR:-/opt/torrentflix/plex/config}:/config
       - ${PLEX_TRANSCODE_DIR:-/opt/torrentflix/plex/transcode}:/transcode
-      - ${MEDIA_DIR:-/srv/torrentflix/media}:/mnt/plexmedia
+      - ${MEDIA_DIR:-/opt/torrentflix/plex/media}:/mnt/plexmedia:ro
 
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=256m

@@ -36,21 +36,15 @@ jobs:
           grep -q 'PLEX_UID: "10002"' <<< "$plex_rendered"
           grep -q 'PLEX_GID: "10000"' <<< "$plex_rendered"
 
-          PEER_PORT=51413 docker compose \
-            -f deluge/compose.yml -f deluge/compose.peer.yml config --quiet
-          PEER_PORT=51413 docker compose \
-            -f deluge/compose.vps.yml -f deluge/compose.peer.yml config --quiet
-
-          lan_rendered="$(PEER_PORT=51413 docker compose \
-            -f deluge/compose.yml -f deluge/compose.peer.yml config)"
-          test "$(grep -c 'target: 8112' <<< "$lan_rendered")" -eq 1
-          test "$(grep -c 'target: 6881' <<< "$lan_rendered")" -eq 2
-
-          vps_rendered="$(PEER_PORT=51413 docker compose \
-            -f deluge/compose.vps.yml -f deluge/compose.peer.yml config)"
-          test "$(grep -c 'target: 6881' <<< "$vps_rendered")" -eq 2
-          test "$(grep -c 'target: 80' <<< "$vps_rendered")" -eq 1
-          test "$(grep -c 'target: 443' <<< "$vps_rendered")" -eq 1
+          lan_rendered="$(docker compose -f deluge/compose.yml config)"
+          vps_rendered="$(docker compose -f deluge/compose.vps.yml config)"
+          test "$(grep -c 'target: 6881' <<< "$lan_rendered")" -eq 0
+          test "$(grep -c 'target: 6881' <<< "$vps_rendered")" -eq 0
+          grep -q 'expose:' <<< "$lan_rendered"
+          grep -q 'expose:' <<< "$vps_rendered"
+          grep -q '/mnt/plexmedia:ro' <<< "$plex_rendered" || grep -q 'read_only: true' <<< "$plex_rendered"
+          ! grep -Eq 'published: (6881|[0-9]+).*target: 6881|target: 6881.*published:' <<< "$lan_rendered"
+          ! grep -Eq 'published: (6881|[0-9]+).*target: 6881|target: 6881.*published:' <<< "$vps_rendered"
 
   build:
     runs-on: ubuntu-latest

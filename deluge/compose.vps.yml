@@ -14,7 +14,7 @@ services:
       DELUGE_LOGLEVEL: ${DELUGE_LOGLEVEL:-info}
     volumes:
       - ${DELUGE_CONFIG_DIR:-/opt/torrentflix/deluge/config}:/config
-      - ${DOWNLOAD_DIR:-/srv/torrentflix/downloads}:/downloads
+      - ${DOWNLOAD_DIR:-/opt/torrentflix/deluge/downloads}:/downloads
     expose:
       - "8112"
       - "6881"

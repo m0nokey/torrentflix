@@ -1,797 +1,286 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
 HOST_OS="$(uname -s 2>/dev/null || printf 'unknown')"
 
 if [ -t 1 ]; then
-    COLOR_RESET=$'\033[0m'
-    COLOR_LINE=$'\033[38;5;117m'
-    COLOR_TEXT=$'\033[97m'
-    COLOR_MUTED_ITALIC=$'\033[3;38;5;245m'
+    RESET=$'\033[0m'; LINE=$'\033[38;5;117m'; TEXT=$'\033[97m'; MUTED=$'\033[3;38;5;245m'
 else
-    COLOR_RESET=''
-    COLOR_LINE=''
-    COLOR_TEXT=''
-    COLOR_MUTED_ITALIC=''
+    RESET=''; LINE=''; TEXT=''; MUTED=''
 fi
 
-clear_terminal() {
-    if command -v clear >/dev/null 2>&1 && [ -t 1 ]; then
-        clear
-    else
-        printf '\033c'
-    fi
-}
+readonly DEFAULT_MEDIA_GID=10000
+readonly DEFAULT_DELUGE_UID=10001
+readonly DEFAULT_PLEX_UID=10002
+readonly DELUGE_IMAGE='lscr.io/linuxserver/deluge:2.2.0@sha256:33a939576f7ecfc1227db1a0cb2afce030ce983e620ec9d93c956e3700e21fe9'
+readonly WEB_DIR='/lsiopy/lib/python3.12/site-packages/deluge/ui/web'
+readonly THEME_COMMIT='dbef18e3c9a2cb0f2448d16bb95dca868f94440e'
+readonly THEME_SHA256='5c3e6a4453fb06c16bc89f3b3789f12ba56b01addc111477211cb63e93f291bb'
 
-readonly VPS_MEDIA_GID=10000
-readonly VPS_DELUGE_UID=10001
-readonly VPS_PLEX_UID=10002
-
-die_global() {
-    echo "[!] $*" >&2
-    exit 1
-}
+die() { echo "[!] $*" >&2; exit 1; }
+clear_terminal() { if [ -t 1 ] && command -v clear >/dev/null 2>&1; then clear; else printf '\033c'; fi; }
 
 env_value() {
-    [ -f "$ENV_FILE" ] || return 0
-    awk -F= -v key="$1" '$1 == key { sub(/^[^=]*=/, ""); print; exit }' "$ENV_FILE"
+    local file="$1" key="$2"
+    [ -f "$file" ] || return 0
+    awk -F= -v key="$key" '$1 == key { sub(/^[^=]*=/, ""); print; exit }' "$file"
 }
 
-id_in_use() {
-    getent passwd "$1" >/dev/null 2>&1 || getent group "$1" >/dev/null 2>&1
+write_env() {
+    local file="$1"
+    shift
+    umask 077
+    : > "$file"
+    while [ "$#" -gt 1 ]; do printf '%s=%s\n' "$1" "$2" >> "$file"; shift 2; done
+    chmod 600 "$file"
 }
 
-next_free_id() {
-    local candidate="$1"
-    while id_in_use "$candidate"; do
-        candidate=$((candidate + 1))
-    done
-    printf '%s\n' "$candidate"
+sha256_file() {
+    if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'; else shasum -a 256 "$1" | awk '{print $1}'; fi
 }
 
-configure_runtime_identity() {
-    local saved_media_gid saved_deluge_uid saved_plex_uid
-    case "$MODE" in
-        vps|home_server)
-            if ! command -v getent >/dev/null 2>&1; then
-                die_global "getent is required for server identity checks"
-            fi
-
-            saved_media_gid="$(env_value MEDIA_GID)"
-            saved_deluge_uid="$(env_value DELUGE_UID)"
-            saved_plex_uid="$(env_value PLEX_UID)"
-
-            if [ -n "${TORRENTFLIX_MEDIA_GID:-}" ]; then
-                MEDIA_GID="$TORRENTFLIX_MEDIA_GID"
-            elif [ -n "$saved_media_gid" ]; then
-                MEDIA_GID="$saved_media_gid"
-            else
-                MEDIA_GID="$(next_free_id "$VPS_MEDIA_GID")"
-            fi
-
-            if [ -n "${TORRENTFLIX_DELUGE_UID:-}" ]; then
-                DELUGE_UID="$TORRENTFLIX_DELUGE_UID"
-            elif [ -n "$saved_deluge_uid" ]; then
-                DELUGE_UID="$saved_deluge_uid"
-            else
-                DELUGE_UID="$(next_free_id "$VPS_DELUGE_UID")"
-            fi
-
-            if [ -n "${TORRENTFLIX_PLEX_UID:-}" ]; then
-                PLEX_UID="$TORRENTFLIX_PLEX_UID"
-            elif [ -n "$saved_plex_uid" ]; then
-                PLEX_UID="$saved_plex_uid"
-            else
-                PLEX_UID="$(next_free_id "$VPS_PLEX_UID")"
-            fi
-
-            if [ "$DELUGE_UID" = "$MEDIA_GID" ]; then
-                [ -n "${TORRENTFLIX_DELUGE_UID:-}" ] || [ -n "$saved_deluge_uid" ] || \
-                    DELUGE_UID="$(next_free_id "$((DELUGE_UID + 1))")"
-            fi
-            if [ "$PLEX_UID" = "$MEDIA_GID" ] || [ "$PLEX_UID" = "$DELUGE_UID" ]; then
-                [ -n "${TORRENTFLIX_PLEX_UID:-}" ] || [ -n "$saved_plex_uid" ] || \
-                    PLEX_UID="$(next_free_id "$((PLEX_UID + 1))")"
-            fi
-
-            [[ "$MEDIA_GID" =~ ^[0-9]+$ && "$DELUGE_UID" =~ ^[0-9]+$ && "$PLEX_UID" =~ ^[0-9]+$ ]] || \
-                die_global "Server service IDs must be numeric"
-            [ "$MEDIA_GID" != 0 ] && [ "$DELUGE_UID" != 0 ] && [ "$PLEX_UID" != 0 ] || \
-                die_global "Server service IDs cannot be 0"
-            [ "$MEDIA_GID" != "$DELUGE_UID" ] && [ "$MEDIA_GID" != "$PLEX_UID" ] || \
-                die_global "Media group ID must differ from service UIDs"
-            [ "$DELUGE_UID" != "$PLEX_UID" ] || die_global "Deluge and Plex must use different UIDs"
-
-            for service_id in "$MEDIA_GID" "$DELUGE_UID" "$PLEX_UID"; do
-                if id_in_use "$service_id"; then
-                    die_global "Configured service ID $service_id is already used by a host account; set a free advanced override"
-                fi
-            done
-
-            DELUGE_GID="$MEDIA_GID"
-            PLEX_GID="$MEDIA_GID"
-            ;;
-        local)
-            if [ -n "${SUDO_UID:-}" ] && [ -n "${SUDO_GID:-}" ]; then
-                RUNTIME_UID="$SUDO_UID"
-                RUNTIME_GID="$SUDO_GID"
-            else
-                RUNTIME_UID="$(id -u)"
-                RUNTIME_GID="$(id -g)"
-            fi
-            [[ "$RUNTIME_UID" =~ ^[0-9]+$ && "$RUNTIME_GID" =~ ^[0-9]+$ ]] || \
-                die_global "Local runtime UID/GID could not be determined"
-            DELUGE_UID="$RUNTIME_UID"
-            DELUGE_GID="$RUNTIME_GID"
-            PLEX_UID="$RUNTIME_UID"
-            PLEX_GID="$RUNTIME_GID"
-            MEDIA_GID="$RUNTIME_GID"
-            ;;
-        *)
-            die_global "Unknown installation mode: $MODE"
-            ;;
-    esac
+canonical_path() {
+    if command -v realpath >/dev/null 2>&1; then realpath -m -- "$1" 2>/dev/null && return; fi
+    python3 - "$1" <<'PY'
+import os, sys
+print(os.path.realpath(os.path.abspath(sys.argv[1])))
+PY
 }
 
-select_installation_mode() {
-    clear_terminal
-    printf '%s%s%s\n' "$COLOR_LINE" "Torrentflix" "$COLOR_RESET"
-    echo
-    printf '%s%s%s\n' "$COLOR_TEXT" "Select installation mode." "$COLOR_RESET"
-    echo
-    printf '%s1.%s %sVPS (Public Server)%s\n' "$COLOR_LINE" "$COLOR_RESET" "$COLOR_TEXT" "$COLOR_RESET"
-    printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "   Linux server, public HTTPS, bundled Nginx and Let's Encrypt." "$COLOR_RESET"
-    printf '%s2.%s %sHome Server (LAN Only)%s\n' "$COLOR_LINE" "$COLOR_RESET" "$COLOR_TEXT" "$COLOR_RESET"
-    printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "   Always-on Linux server or NAS. No domain or public Nginx." "$COLOR_RESET"
-    printf '%s3.%s %sLocal (macOS/Linux)%s\n' "$COLOR_LINE" "$COLOR_RESET" "$COLOR_TEXT" "$COLOR_RESET"
-    printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "   Personal workstation. Deluge only, with local-user file ownership." "$COLOR_RESET"
-    echo
-    if [ "$HOST_OS" = "Darwin" ]; then
-        DEFAULT_MODE_CHOICE=3
+path_contains() {
+    local parent child
+    parent="$(canonical_path "$1")"; child="$(canonical_path "$2")"
+    [ "$parent" = "$child" ] || [[ "$child" == "$parent"/* ]]
+}
+
+assert_no_source_overlap() {
+    local runtime_root="$1" downloads="$2"
+    if path_contains "$SCRIPT_DIR" "$runtime_root" || path_contains "$runtime_root" "$SCRIPT_DIR" ||
+       path_contains "$SCRIPT_DIR" "$downloads" || path_contains "$downloads" "$SCRIPT_DIR"; then
+        die 'Git checkout, runtime and downloads must be separate directories'
+    fi
+}
+
+write_marker() {
+    local root="$1" type="$2"
+    printf 'managed-by=torrentflix\ntype=%s\n' "$type" > "$root/.torrentflix-managed"
+    chmod 600 "$root/.torrentflix-managed"
+}
+
+marker_matches() {
+    local root="$1" type="$2"
+    [ -f "$root/.torrentflix-managed" ] && grep -qx 'managed-by=torrentflix' "$root/.torrentflix-managed" && grep -qx "type=$type" "$root/.torrentflix-managed"
+}
+
+managed_dir() {
+    local path="$1" owner="$2" group="$3" mode="$4" type="$5"
+    [ -n "$path" ] && [ "$path" != / ] || die 'Refusing an empty or root path'
+    [ ! -L "$path" ] || die "Refusing a symbolic-link managed path: $path"
+    if [ -e "$path" ]; then
+        [ -d "$path" ] || die "Managed path is not a directory: $path"
+        if [ -f "$path/.torrentflix-managed" ]; then
+            marker_matches "$path" "$type" || die "Managed marker mismatch: $path"
+        elif [ -n "$(find "$path" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]; then
+            die "Refusing to take ownership of a non-empty unmarked directory: $path"
+        else
+            write_marker "$path" "$type"
+        fi
     else
-        DEFAULT_MODE_CHOICE=1
+        install -d -o "$owner" -g "$group" -m "$mode" "$path"
+        write_marker "$path" "$type"
     fi
-    read -r -p "?: " MODE_CHOICE
-    MODE_CHOICE="${MODE_CHOICE:-$DEFAULT_MODE_CHOICE}"
-    case "$MODE_CHOICE" in
-        1) MODE=vps ;;
-        2) MODE=home_server ;;
-        3) MODE=local ;;
-        *) die_global "Choose 1, 2 or 3" ;;
-    esac
-
-    if [ "$MODE" = vps ] || [ "$MODE" = home_server ]; then
-        [ "$HOST_OS" = Linux ] || die_global "Server modes require Linux"
-        [ "$(id -u)" -eq 0 ] || {
-            echo "Torrentflix server installation must be run as root." >&2
-            echo "Run: sudo ./run.sh" >&2
-            exit 1
-        }
-    fi
-
-    if [ "$MODE" = local ]; then
-        [ "$HOST_OS" = Linux ] || [ "$HOST_OS" = Darwin ] || die_global "Local mode supports Linux and macOS"
-    fi
+    chown "$owner:$group" "$path" "$path/.torrentflix-managed"
+    chmod "$mode" "$path"
 }
 
-configure_runtime_paths() {
+id_in_use() { getent passwd "$1" >/dev/null 2>&1 || getent group "$1" >/dev/null 2>&1; }
+next_free_id() {
+    local id="$1"
+    while id_in_use "$id" || [ "$id" = "${MEDIA_GID:-}" ] || [ "$id" = "${DELUGE_UID:-}" ] || [ "$id" = "${PLEX_UID:-}" ]; do id=$((id + 1)); done
+    printf '%s\n' "$id"
+}
+
+configure_paths() {
     if [ "$MODE" = local ]; then
-        [ -n "${HOME:-}" ] || die_global "HOME is not set"
-        RUNTIME_ROOT="$HOME/torrentflix"
-        DATA_ROOT="$RUNTIME_ROOT"
-        DEFAULT_DOWNLOAD_DIR="$RUNTIME_ROOT/downloads"
-        DEFAULT_MEDIA_DIR="$RUNTIME_ROOT/media"
+        if [ "$HOST_OS" = Darwin ]; then LOCAL_ROOT="$REAL_HOME/Library/Application Support/Torrentflix"; else LOCAL_ROOT="${XDG_DATA_HOME:-$REAL_HOME/.local/share}/torrentflix"; fi
+        DELUGE_ROOT="$LOCAL_ROOT/deluge"
+        DEFAULT_DOWNLOAD_DIR="$REAL_HOME/Downloads/torrentflix-downloads"
         WEB_BIND_IP=127.0.0.1
     else
-        RUNTIME_ROOT=/opt/torrentflix
-        DATA_ROOT=/srv/torrentflix
-        DEFAULT_DOWNLOAD_DIR="$DATA_ROOT/downloads"
-        DEFAULT_MEDIA_DIR="$DATA_ROOT/media"
-        WEB_BIND_IP=0.0.0.0
+        SERVER_ROOT=/opt/torrentflix; DELUGE_ROOT="$SERVER_ROOT/deluge"; PLEX_ROOT="$SERVER_ROOT/plex"
+        DEFAULT_DOWNLOAD_DIR="$DELUGE_ROOT/downloads"; DEFAULT_MEDIA_DIR="$PLEX_ROOT/media"; WEB_BIND_IP=0.0.0.0
     fi
-
-    COMPOSE_ROOT="$RUNTIME_ROOT/compose"
-    DELUGE_DATA_ROOT="$RUNTIME_ROOT/deluge"
-    DELUGE_CONFIG_DIR="$DELUGE_DATA_ROOT/config"
-    SECRETS_DIR="$DELUGE_DATA_ROOT/secrets"
-    PASSWORD_FILE="$SECRETS_DIR/webui.password"
-    PLEX_DATA_ROOT="$RUNTIME_ROOT/plex"
-    PLEX_CONFIG_DIR="$PLEX_DATA_ROOT/config"
-    PLEX_TRANSCODE_DIR="$PLEX_DATA_ROOT/transcode"
-    NGINX_DIR="$COMPOSE_ROOT/nginx"
-    THEME_DIR="$COMPOSE_ROOT/theme"
-    ENV_FILE="$COMPOSE_ROOT/.env"
-    COMPOSE_FILE="$COMPOSE_ROOT/compose.yml"
-    VPS_COMPOSE_FILE="$COMPOSE_ROOT/compose.vps.yml"
-    PEER_COMPOSE_FILE="$COMPOSE_ROOT/compose.peer.yml"
-    NGINX_RUNTIME_CONF="$NGINX_DIR/conf.d.runtime"
+    DELUGE_ENV="$DELUGE_ROOT/.env"; DELUGE_CONFIG_DIR="$DELUGE_ROOT/config"; SECRETS_DIR="$DELUGE_ROOT/secrets"; PASSWORD_FILE="$SECRETS_DIR/webui.password"
+    COMPOSE_FILE="$DELUGE_ROOT/compose.yml"; VPS_COMPOSE_FILE="$DELUGE_ROOT/compose.vps.yml"; THEME_DIR="$DELUGE_ROOT/theme"; NGINX_DIR="$DELUGE_ROOT/nginx"; NGINX_RUNTIME_CONF="$NGINX_DIR/conf.d.runtime"
+    if [ "$MODE" != local ]; then PLEX_ENV="$PLEX_ROOT/.env"; PLEX_CONFIG_DIR="$PLEX_ROOT/config"; PLEX_TRANSCODE_DIR="$PLEX_ROOT/transcode"; fi
 }
 
-ensure_runtime_directories() {
+prepare_mode_context() {
     if [ "$MODE" = local ]; then
-        install -d -o "$DELUGE_UID" -g "$DELUGE_GID" -m 0755 "$RUNTIME_ROOT" "$COMPOSE_ROOT"
-        install -d -o "$DELUGE_UID" -g "$DELUGE_GID" -m 0700 "$DELUGE_CONFIG_DIR" "$SECRETS_DIR"
-        install -d -o "$DELUGE_UID" -g "$DELUGE_GID" -m 0755 "$DOWNLOAD_DIR"
+        prepare_identity
+        configure_paths
+    else
+        configure_paths
+        prepare_identity
+    fi
+}
+
+prepare_identity() {
+    local saved_media saved_deluge saved_plex candidate
+    if [ "$MODE" = local ]; then
+        if [ -n "${SUDO_UID:-}" ] && [ -n "${SUDO_GID:-}" ] && [ "${SUDO_UID}" != 0 ]; then
+            REAL_UID="$SUDO_UID"; REAL_GID="$SUDO_GID"
+            if [ "$HOST_OS" = Linux ]; then REAL_HOME="$(getent passwd "$REAL_UID" | awk -F: 'NR==1 {print $6}')"; else REAL_HOME="$(dscl . -search /Users UniqueID "$REAL_UID" 2>/dev/null | awk '{print $1; exit}' | xargs -I{} dscl . -read /Users/{} NFSHomeDirectory 2>/dev/null | awk '{print $2}')"; fi
+        else
+            REAL_UID="$(id -u)"; REAL_GID="$(id -g)"; REAL_HOME="${HOME:-}"
+        fi
+        [ -n "$REAL_HOME" ] && [ "$REAL_UID" != 0 ] || die 'Could not determine the non-root local user'
+        DELUGE_UID="$REAL_UID"; DELUGE_GID="$REAL_GID"; PLEX_UID="$REAL_UID"; PLEX_GID="$REAL_GID"; MEDIA_GID="$REAL_GID"
         return
     fi
-
-    install -d -o root -g root -m 0755 "$RUNTIME_ROOT" "$COMPOSE_ROOT"
-    install -d -o "$DELUGE_UID" -g "$DELUGE_GID" -m 0700 "$DELUGE_CONFIG_DIR" "$SECRETS_DIR"
-    install -d -o "$PLEX_UID" -g "$PLEX_GID" -m 0700 "$PLEX_CONFIG_DIR" "$PLEX_TRANSCODE_DIR"
-    install -d -o "$DELUGE_UID" -g "$MEDIA_GID" -m 2775 "$DOWNLOAD_DIR"
-    install -d -o "$PLEX_UID" -g "$MEDIA_GID" -m 2775 "$MEDIA_DIR"
+    [ "$(id -u)" -eq 0 ] || die 'Server installation must be run as root. Run: sudo ./run.sh'
+    command -v getent >/dev/null 2>&1 || die 'getent is required for server identity checks'
+    saved_media="$(env_value "$DELUGE_ENV" MEDIA_GID)"; saved_deluge="$(env_value "$DELUGE_ENV" DELUGE_UID)"; saved_plex="$(env_value "$PLEX_ENV" PLEX_UID)"
+    MEDIA_GID="${TORRENTFLIX_MEDIA_GID:-${saved_media:-$DEFAULT_MEDIA_GID}}"; DELUGE_UID="${TORRENTFLIX_DELUGE_UID:-${saved_deluge:-$DEFAULT_DELUGE_UID}}"; PLEX_UID="${TORRENTFLIX_PLEX_UID:-${saved_plex:-$DEFAULT_PLEX_UID}}"
+    [[ "$MEDIA_GID" =~ ^[1-9][0-9]*$ && "$DELUGE_UID" =~ ^[1-9][0-9]*$ && "$PLEX_UID" =~ ^[1-9][0-9]*$ ]] || die 'Server service IDs must be positive integers'
+    if [ -n "${TORRENTFLIX_MEDIA_GID:-$saved_media}" ]; then id_in_use "$MEDIA_GID" && die "Saved media group ID $MEDIA_GID is now used by a host account"; elif id_in_use "$MEDIA_GID"; then candidate="$MEDIA_GID"; MEDIA_GID=''; MEDIA_GID="$(next_free_id "$candidate")"; fi
+    if [ -n "${TORRENTFLIX_DELUGE_UID:-$saved_deluge}" ]; then id_in_use "$DELUGE_UID" && die "Saved Deluge UID $DELUGE_UID is now used by a host account"; elif id_in_use "$DELUGE_UID" || [ "$DELUGE_UID" = "$MEDIA_GID" ]; then candidate="$DELUGE_UID"; DELUGE_UID=''; DELUGE_UID="$(next_free_id "$candidate")"; fi
+    while [ "$DELUGE_UID" = "$MEDIA_GID" ]; do DELUGE_UID="$(next_free_id "$((DELUGE_UID + 1))")"; done
+    if [ -n "${TORRENTFLIX_PLEX_UID:-$saved_plex}" ]; then id_in_use "$PLEX_UID" && die "Saved Plex UID $PLEX_UID is now used by a host account"; elif id_in_use "$PLEX_UID" || [ "$PLEX_UID" = "$MEDIA_GID" ] || [ "$PLEX_UID" = "$DELUGE_UID" ]; then candidate="$PLEX_UID"; PLEX_UID=''; PLEX_UID="$(next_free_id "$candidate")"; fi
+    while [ "$PLEX_UID" = "$MEDIA_GID" ] || [ "$PLEX_UID" = "$DELUGE_UID" ]; do PLEX_UID="$(next_free_id "$((PLEX_UID + 1))")"; done
+    [ "$MEDIA_GID" != "$DELUGE_UID" ] && [ "$MEDIA_GID" != "$PLEX_UID" ] && [ "$DELUGE_UID" != "$PLEX_UID" ] || die 'Server service IDs must be distinct'
+    DELUGE_GID="$MEDIA_GID"; PLEX_GID="$MEDIA_GID"
 }
 
-run_plex() {
-    PROJECT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-    PLEX_IMAGE="plexinc/pms-docker:1.43.3.10861-07dfddaeb@sha256:5bc1d13f48da6366f46aaf2a3ce1a6292897eadc1f8efcbbd7321d30e94f2ed4"
+prepare_deluge_dirs() {
+    local root_owner=root root_group=root
+    if [ "$MODE" = local ]; then root_owner="$DELUGE_UID"; root_group="$DELUGE_GID"; fi
+    managed_dir "$DELUGE_ROOT" "$root_owner" "$root_group" 0755 runtime; managed_dir "$DELUGE_CONFIG_DIR" "$DELUGE_UID" "$DELUGE_GID" 0700 config; managed_dir "$SECRETS_DIR" "$DELUGE_UID" "$DELUGE_GID" 0700 secrets
+    if [ "$DOWNLOAD_MANAGED" = true ]; then managed_dir "$DOWNLOAD_DIR" "$DELUGE_UID" "$MEDIA_GID" 2775 downloads; else [ -d "$DOWNLOAD_DIR" ] && [ -w "$DOWNLOAD_DIR" ] || die "External download directory is not writable: $DOWNLOAD_DIR"; fi
+    chown -R "$DELUGE_UID:$DELUGE_GID" "$DELUGE_CONFIG_DIR" "$SECRETS_DIR"
+}
 
-    command -v docker >/dev/null || { echo "[!] Docker is required" >&2; exit 1; }
+prepare_plex_dirs() {
+    managed_dir "$PLEX_ROOT" root root 0755 runtime; managed_dir "$PLEX_CONFIG_DIR" "$PLEX_UID" "$PLEX_GID" 0700 config; managed_dir "$PLEX_TRANSCODE_DIR" "$PLEX_UID" "$PLEX_GID" 0700 transcode
+    if [ "$MEDIA_MANAGED" = true ]; then managed_dir "$MEDIA_DIR" "$PLEX_UID" "$MEDIA_GID" 2775 media; else [ -d "$MEDIA_DIR" ] && [ -r "$MEDIA_DIR" ] || die "External media directory is not readable: $MEDIA_DIR"; fi
+    chown -R "$PLEX_UID:$PLEX_GID" "$PLEX_CONFIG_DIR" "$PLEX_TRANSCODE_DIR"
+}
 
-    if [ -t 1 ]; then
-        COLOR_RESET=$'\033[0m'
-        COLOR_LINE=$'\033[38;5;117m'
-    else
-        COLOR_RESET=''
-        COLOR_LINE=''
-    fi
+select_download_dir() {
+    local saved; saved="$(env_value "$DELUGE_ENV" DOWNLOAD_DIR)"; DEFAULT_DOWNLOAD_DIR="${saved:-$DEFAULT_DOWNLOAD_DIR}"
+    read -r -p "Download directory [$DEFAULT_DOWNLOAD_DIR]: " DOWNLOAD_INPUT; DOWNLOAD_DIR="${DOWNLOAD_INPUT:-$DEFAULT_DOWNLOAD_DIR}"
+    case "$DOWNLOAD_DIR" in /*) ;; *) die 'Download directory must be absolute' ;; esac
+    [ "$DOWNLOAD_DIR" != / ] || die 'The filesystem root cannot be used as downloads'
+    if [ "$DOWNLOAD_DIR" = "$DELUGE_ROOT/downloads" ]; then DOWNLOAD_MANAGED=true; else DOWNLOAD_MANAGED=false; [ -d "$DOWNLOAD_DIR" ] && [ -w "$DOWNLOAD_DIR" ] || die 'External download directory must exist and be writable'; fi
+}
 
-    [ "$MODE" != local ] || die_global "Plex is available only in VPS and Home Server modes"
-    configure_runtime_paths
-    configure_runtime_identity
+select_media_dir() {
+    local saved_media saved_managed mount choice index
+    saved_media="$(env_value "$PLEX_ENV" MEDIA_DIR)"; saved_managed="$(env_value "$PLEX_ENV" MEDIA_MANAGED)"
+    if [ -n "$saved_media" ] && [ "$saved_managed" = false ] && [ -d "$saved_media" ]; then MEDIA_DIR="$saved_media"; MEDIA_MANAGED=false; return; fi
+    if [ -n "$saved_media" ] && [ "$saved_managed" = true ]; then MEDIA_DIR="$saved_media"; MEDIA_MANAGED=true; return; fi
+    MOUNTS=(); if command -v findmnt >/dev/null 2>&1; then while IFS= read -r mount; do [ -d "$mount" ] && MOUNTS+=("$mount"); done < <(findmnt -rn -o TARGET | awk '$0 ~ /^\/mnt\// || $0 ~ /^\/media\// || $0 ~ /^\/run\/media\//'); fi
+    echo; echo 'Plex media location:'; index=1
+    for mount in "${MOUNTS[@]}"; do printf '%s%s.%s %s%s%s\n' "$LINE" "$index" "$RESET" "$TEXT" "$mount" "$RESET"; index=$((index + 1)); done
+    printf '%sC.%s Enter another path\n' "$LINE" "$RESET"; printf '%sF.%s Use Torrentflix default (%s)\n' "$LINE" "$RESET" "$DEFAULT_MEDIA_DIR"
+    read -r -p '?: ' choice
+    if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#MOUNTS[@]}" ]; then MEDIA_DIR="${MOUNTS[$((choice - 1))]}"; MEDIA_MANAGED=false
+    elif [ "$choice" = c ] || [ "$choice" = C ]; then read -r -p 'Media directory: ' MEDIA_DIR; case "$MEDIA_DIR" in /*) ;; *) die 'Media directory must be absolute' ;; esac; [ "$MEDIA_DIR" != / ] || die 'The filesystem root cannot be used as media'; [ -d "$MEDIA_DIR" ] && [ -r "$MEDIA_DIR" ] || die 'Media directory must exist and be readable'; MEDIA_MANAGED=false
+    else MEDIA_DIR="$DEFAULT_MEDIA_DIR"; MEDIA_MANAGED=true; fi
+}
 
-    clear_terminal
-    printf '%s%s%s\n' "$COLOR_LINE" "Torrentflix Plex" "$COLOR_RESET"
-    echo
+write_deluge_env() {
+    write_env "$DELUGE_ENV" MODE "$MODE" MEDIA_GID "$MEDIA_GID" DELUGE_UID "$DELUGE_UID" DELUGE_GID "$DELUGE_GID" DELUGE_CONFIG_DIR "$DELUGE_CONFIG_DIR" DOWNLOAD_DIR "$DOWNLOAD_DIR" DOWNLOAD_MANAGED "$DOWNLOAD_MANAGED" DELUGE_IMAGE "$DELUGE_IMAGE" WEB_DIR "$WEB_DIR" WEB_PORT 8112 WEB_BIND_IP "$WEB_BIND_IP" PRIMARY_DOMAIN "${DOMAIN:-}" HSTS_POLICY "$HSTS_POLICY" TZ UTC
+}
+write_plex_env() {
+    write_env "$PLEX_ENV" MODE "$MODE" MEDIA_GID "$MEDIA_GID" PLEX_UID "$PLEX_UID" PLEX_GID "$PLEX_GID" PLEX_CONFIG_DIR "$PLEX_CONFIG_DIR" PLEX_TRANSCODE_DIR "$PLEX_TRANSCODE_DIR" MEDIA_DIR "$MEDIA_DIR" MEDIA_MANAGED "$MEDIA_MANAGED" TZ UTC PLEX_CLAIM "${PLEX_CLAIM:-}" PLEX_IMAGE 'plexinc/pms-docker:1.43.3.10861-07dfddaeb@sha256:5bc1d13f48da6366f46aaf2a3ce1a6292897eadc1f8efcbbd7321d30e94f2ed4' PLEX_MEM_LIMIT 4g PLEX_MEM_RESERVATION 512m PLEX_CPUS 2.0 PLEX_PIDS_LIMIT 512
+}
 
-    PLEX_CLAIM=""
-    printf '%sPlex claim token (optional): %s' "$COLOR_LINE" "$COLOR_RESET"
-    read -r -s PLEX_CLAIM
-    echo
+install_deluge_files() {
+    cp "$SCRIPT_DIR/deluge/Dockerfile" "$DELUGE_ROOT/Dockerfile"; cp "$SCRIPT_DIR/deluge/compose.yml" "$DELUGE_ROOT/compose.yml"; cp "$SCRIPT_DIR/deluge/.dockerignore" "$DELUGE_ROOT/.dockerignore"; rm -f "$VPS_COMPOSE_FILE"; rm -rf "$THEME_DIR" "$NGINX_DIR"; mkdir -p "$THEME_DIR"
+    if [ "$MODE" = vps ]; then cp "$SCRIPT_DIR/deluge/compose.vps.yml" "$VPS_COMPOSE_FILE"; mkdir -p "$NGINX_RUNTIME_CONF" "$NGINX_DIR/www"; cp "$SCRIPT_DIR/deluge/nginx/Dockerfile" "$NGINX_DIR/Dockerfile"; sed "s|__HSTS_POLICY__|$HSTS_POLICY|g" "$SCRIPT_DIR/deluge/nginx/nginx.conf" > "$NGINX_DIR/nginx.conf"; cp "$SCRIPT_DIR/deluge/nginx/conf.d/00-acme.conf" "$NGINX_RUNTIME_CONF/00-acme.conf"; sed "s/domain\.com/$DOMAIN/g" "$SCRIPT_DIR/deluge/nginx/conf.d/domain.com.conf" > "$NGINX_RUNTIME_CONF/$DOMAIN.conf"; fi
+}
 
-    SAVED_MEDIA_DIR="$(env_value MEDIA_DIR)"
-    [ -n "$SAVED_MEDIA_DIR" ] && DEFAULT_MEDIA_DIR="$SAVED_MEDIA_DIR"
-    printf '%sMedia directory [%s]: %s' "$COLOR_LINE" "$DEFAULT_MEDIA_DIR" "$COLOR_RESET"
-    read -r MEDIA_INPUT
-    MEDIA_DIR="${MEDIA_INPUT:-$DEFAULT_MEDIA_DIR}"
-    case "$MEDIA_DIR" in
-        /*) ;;
-        *) echo "[!] Media directory must be an absolute path" >&2; exit 1 ;;
-    esac
-    SAVED_DOWNLOAD_DIR="$(env_value DOWNLOAD_DIR)"
-    DOWNLOAD_DIR="${SAVED_DOWNLOAD_DIR:-$DEFAULT_DOWNLOAD_DIR}"
+download_theme() {
+    local archive theme_url="https://raw.githubusercontent.com/joelacus/deluge-web-dark-theme/$THEME_COMMIT/deluge_web_dark_theme.tar.gz"; archive="$(mktemp)"
+    curl -fsSL "$theme_url" -o "$archive"; [ "$(sha256_file "$archive")" = "$THEME_SHA256" ] || { rm -f "$archive"; die 'Theme checksum verification failed'; }; tar -xzf "$archive" -C "$THEME_DIR"; rm -f "$archive"
+    [ -d "$THEME_DIR/icons" ] && [ -d "$THEME_DIR/images" ] && [ -f "$THEME_DIR/themes/css/xtheme-dark.css" ] || die 'Theme assets are incomplete'
+}
 
-    ensure_runtime_directories
-    if [ "$MODE" != local ] && [ ! -e "$PLEX_CONFIG_DIR/.torrentflix-migrated" ]; then
-        if [ -d /opt/plex/config/plex/db ] && [ ! -e "$PLEX_CONFIG_DIR/Preferences.xml" ]; then
-            cp -a /opt/plex/config/plex/db/. "$PLEX_CONFIG_DIR/"
-        fi
-        touch "$PLEX_CONFIG_DIR/.torrentflix-migrated"
-        chown -R "$PLEX_UID:$PLEX_GID" "$PLEX_CONFIG_DIR" "$PLEX_TRANSCODE_DIR"
-    fi
-
-    echo "[+] Installing the Compose project into $COMPOSE_ROOT..."
-    cp "$PROJECT_DIR/plex/compose.yml" "$COMPOSE_ROOT/plex.compose.yml"
-    cp "$PROJECT_DIR/plex/.env.example" "$COMPOSE_ROOT/plex.env.example"
-
-    cat > "$ENV_FILE" <<EOF
-MODE=$MODE
-RUNTIME_ROOT=$RUNTIME_ROOT
-MEDIA_GID=$MEDIA_GID
-DELUGE_UID=$DELUGE_UID
-DELUGE_GID=$DELUGE_GID
-PLEX_UID=$PLEX_UID
-PLEX_GID=$PLEX_GID
-PLEX_CONFIG_DIR=$PLEX_CONFIG_DIR
-PLEX_TRANSCODE_DIR=$PLEX_TRANSCODE_DIR
-DOWNLOAD_DIR=$DOWNLOAD_DIR
-TZ=UTC
-MEDIA_DIR=$MEDIA_DIR
-PLEX_CLAIM=$PLEX_CLAIM
-PLEX_IMAGE=$PLEX_IMAGE
-PLEX_MEM_LIMIT=4g
-PLEX_MEM_RESERVATION=512m
-PLEX_CPUS=2.0
-PLEX_PIDS_LIMIT=512
-EOF
-    chmod 600 "$ENV_FILE"
-
-    echo "[+] Starting Plex Media Server..."
-    docker compose --env-file "$ENV_FILE" -f "$COMPOSE_ROOT/plex.compose.yml" up -d
-
-    if [ -n "$PLEX_CLAIM" ]; then
-        # The claim token is passed to the newly created container, but should
-        # not remain in the host-side Compose environment file.
-        PLEX_ENV_TMP="$(mktemp)"
-        sed '/^PLEX_CLAIM=/d' "$ENV_FILE" > "$PLEX_ENV_TMP"
-        printf 'PLEX_CLAIM=\n' >> "$PLEX_ENV_TMP"
-        chmod 600 "$PLEX_ENV_TMP"
-        mv "$PLEX_ENV_TMP" "$ENV_FILE"
-    fi
-
-    echo
-    echo "Plex is running."
-    echo "WebUI:  http://SERVER_IP:32400/web"
-    echo "Media:  $MEDIA_DIR"
-    echo "Config: $PLEX_CONFIG_DIR"
-    echo
-    echo "Headless setup (if no claim token was provided):"
-    echo "  ssh -N -L 32400:127.0.0.1:32400 user@SERVER_IP"
-    echo "  Then open http://localhost:32400/web"
+compose_args_deluge() { COMPOSE_ARGS=(--env-file "$DELUGE_ENV" -f "$([ "$MODE" = vps ] && printf '%s' "$VPS_COMPOSE_FILE" || printf '%s' "$COMPOSE_FILE")"); }
+run_deluge_rpc() {
+    if [ "$MODE" = vps ]; then printf '%s' "$1" | docker compose "${COMPOSE_ARGS[@]}" exec -T nginx sh -c 'curl -fsS -c /tmp/torrentflix-rpc.cookies -b /tmp/torrentflix-rpc.cookies -H "Content-Type: application/json" --data-binary @- http://deluge:8112/json'; else printf '%s' "$1" | curl -fsS -c "$COOKIE" -b "$COOKIE" -H 'Content-Type: application/json' --data-binary @- http://127.0.0.1:8112/json; fi
 }
 
 run_deluge() {
-    PROJECT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-    SOURCE_NGINX_DIR="$PROJECT_DIR/deluge/nginx"
-    IMAGE="lscr.io/linuxserver/deluge:2.2.0@sha256:33a939576f7ecfc1227db1a0cb2afce030ce983e620ec9d93c956e3700e21fe9"
-    WEB_DIR="/lsiopy/lib/python3.12/site-packages/deluge/ui/web"
-    THEME_COMMIT="dbef18e3c9a2cb0f2448d16bb95dca868f94440e"
-    THEME_SHA256="5c3e6a4453fb06c16bc89f3b3789f12ba56b01addc111477211cb63e93f291bb"
-    THEME_URL="https://raw.githubusercontent.com/joelacus/deluge-web-dark-theme/${THEME_COMMIT}/deluge_web_dark_theme.tar.gz"
+    command -v docker >/dev/null || die 'Docker is required'; command -v curl >/dev/null || die 'curl is required'; command -v tar >/dev/null || die 'tar is required'; command -v openssl >/dev/null || die 'openssl is required'; command -v sha256sum >/dev/null 2>&1 || command -v shasum >/dev/null 2>&1 || die 'sha256sum or shasum is required'
+    prepare_mode_context; assert_no_source_overlap "$DELUGE_ROOT" "$DEFAULT_DOWNLOAD_DIR"; DOMAIN=''; HSTS_POLICY='max-age=63072000'
+    if [ "$MODE" = vps ]; then read -r -p 'Hostname for Deluge HTTPS [deluge.example.com]: ' DOMAIN; DOMAIN="${DOMAIN:-deluge.example.com}"; [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]] || die 'Invalid hostname'; read -r -p 'Enable HSTS subdomains/preload? [y/N]: ' HSTS_INPUT; case "$HSTS_INPUT" in y|Y|yes|YES) HSTS_POLICY='max-age=63072000; includeSubDomains; preload' ;; esac; fi
+    select_download_dir; assert_no_source_overlap "$DELUGE_ROOT" "$DOWNLOAD_DIR"; prepare_deluge_dirs; install_deluge_files; write_deluge_env; [ -s "$PASSWORD_FILE" ] || { umask 077; openssl rand -hex 16 > "$PASSWORD_FILE"; }; chmod 600 "$PASSWORD_FILE"; echo '[+] Downloading theme...'; download_theme; compose_args_deluge
+    echo '[+] Building Deluge image...'; docker compose "${COMPOSE_ARGS[@]}" build --pull; echo '[+] Starting Deluge...'; docker compose "${COMPOSE_ARGS[@]}" up -d; echo '[+] Waiting for Deluge WebUI...'; READY=0
+    for _ in $(seq 1 60); do if [ "$MODE" = vps ]; then docker compose "${COMPOSE_ARGS[@]}" exec -T nginx sh -c 'curl -fsS http://deluge:8112/ >/dev/null' >/dev/null 2>&1 && READY=1; else curl -fsS http://127.0.0.1:8112/ >/dev/null 2>&1 && READY=1; fi; [ "$READY" = 1 ] && break; sleep 1; done
+    [ "$READY" = 1 ] || { docker compose "${COMPOSE_ARGS[@]}" logs --tail=100 deluge; die 'WebUI failed'; }
+    COOKIE="$(mktemp)"; trap 'rm -f "$COOKIE"' EXIT; WEB_PASSWORD="$(cat "$PASSWORD_FILE")"; LOGIN="$(run_deluge_rpc "{\"method\":\"auth.login\",\"params\":[\"$WEB_PASSWORD\"],\"id\":1}")"
+    if echo "$LOGIN" | grep -q '"result": true'; then echo '[+] Existing WebUI password accepted'; else LOGIN="$(run_deluge_rpc '{"method":"auth.login","params":["deluge"],"id":1}')"; echo "$LOGIN" | grep -q '"result": true' || die "WebUI login failed: $LOGIN"; PASSWORD_RESULT="$(run_deluge_rpc "{\"method\":\"auth.change_password\",\"params\":[\"deluge\",\"$WEB_PASSWORD\"],\"id\":2}")"; echo "$PASSWORD_RESULT" | grep -q '"result": true' || die "Password change failed: $PASSWORD_RESULT"; fi
+    THEME_RESULT="$(run_deluge_rpc '{"method":"web.set_theme","params":["dark"],"id":3}')"; echo "$THEME_RESULT" | grep -Eq '"result": true|"error": null' || die "Theme API failed: $THEME_RESULT"
+    clear_terminal; echo "Runtime root:   $DELUGE_ROOT"; [ "$MODE" = vps ] && echo "WebUI URL:     https://$DOMAIN/deluge/"; [ "$MODE" = home_server ] && echo 'WebUI URL:     http://SERVER_IP:8112'; [ "$MODE" = local ] && echo 'WebUI URL:     http://localhost:8112'; echo "Password file: $PASSWORD_FILE"; echo "WebUI password: $WEB_PASSWORD"; echo "Downloads:     $DOWNLOAD_DIR"; echo 'Peer traffic:  Docker internal only'
+}
 
-    if [ -t 1 ]; then
-        COLOR_RESET=$'\033[0m'
-        COLOR_TEXT=$'\033[97m'
-        COLOR_LINE=$'\033[38;5;117m'
-        COLOR_MUTED_ITALIC=$'\033[3;38;5;245m'
-    else
-        COLOR_RESET=''
-        COLOR_TEXT=''
-        COLOR_LINE=''
-        COLOR_MUTED_ITALIC=''
-    fi
+run_plex() {
+    [ "$MODE" != local ] || die 'Plex is available only in server modes'; command -v docker >/dev/null || die 'Docker is required'; prepare_mode_context; assert_no_source_overlap "$PLEX_ROOT" "$DEFAULT_MEDIA_DIR"; PLEX_CLAIM=''; clear_terminal; printf '%sTorrentflix Plex%s\n\n' "$LINE" "$RESET"; printf '%sPlex claim token (optional): %s' "$LINE" "$RESET"; read -r -s PLEX_CLAIM; echo; select_media_dir; assert_no_source_overlap "$PLEX_ROOT" "$MEDIA_DIR"; prepare_plex_dirs; cp "$SCRIPT_DIR/plex/compose.yml" "$PLEX_ROOT/compose.yml"; write_plex_env; echo '[+] Starting Plex Media Server...'; docker compose --env-file "$PLEX_ENV" -f "$PLEX_ROOT/compose.yml" up -d
+    if [ -n "$PLEX_CLAIM" ]; then sed -i.bak '/^PLEX_CLAIM=/d' "$PLEX_ENV"; rm -f "$PLEX_ENV.bak"; printf 'PLEX_CLAIM=\n' >> "$PLEX_ENV"; chmod 600 "$PLEX_ENV"; fi
+    echo; echo 'Plex is running.'; echo 'WebUI:  http://SERVER_IP:32400/web'; echo "Media:  $MEDIA_DIR"; echo "Config: $PLEX_CONFIG_DIR"; echo; echo 'Headless setup without a claim token:'; echo '  ssh -N -L 32400:127.0.0.1:32400 user@SERVER_IP'; echo '  Then open http://localhost:32400/web'
+}
 
-    die() { echo "[!] $*" >&2; exit 1; }
-    clear_terminal() {
-        if command -v clear >/dev/null 2>&1 && [ -t 1 ]; then
-            clear
-        else
-            printf '\033c'
-        fi
-    }
-    compose_is_running() {
-        local compose_file="$1" root="${2:-${1%/*}}" args=(-f "$1")
-        if [ -f "$root/.env" ]; then
-            args=(--env-file "$root/.env" "${args[@]}")
-        fi
-        if [ -f "$root/compose.peer.yml" ]; then
-            args+=( -f "$root/compose.peer.yml" )
-        fi
-        [ -n "$(docker compose "${args[@]}" ps -q 2>/dev/null || true)" ]
-    }
-    stop_compose_stack() {
-        local compose_file="$1" root="${1%/*}" args=(-f "$1")
-        if [ -f "$root/.env" ]; then
-            args=(--env-file "$root/.env" "${args[@]}")
-        fi
-        if [ -f "$root/compose.peer.yml" ]; then
-            args+=( -f "$root/compose.peer.yml" )
-        fi
-        docker compose "${args[@]}" down --remove-orphans
-    }
-    delete_runtime_root() {
-        local root="$1" delete_data="${2:-0}"
-        [ -n "$root" ] || die "Refusing to delete an empty path"
-        [ "$root" != "/" ] || die "Refusing to delete the filesystem root"
-        [ ! -L "$root" ] || die "Refusing to delete a symbolic link: $root"
-        case "$root" in
-            /opt/torrentflix|/opt/deluge|/opt/plex) ;;
-            "${HOME:-}"/torrentflix|"${HOME:-}"/Downloads/deluge) ;;
-            *) die "Refusing to delete an unapproved runtime path: $root" ;;
-        esac
-        [ -f "$root/compose.yml" ] || [ -f "$root/compose/compose.yml" ] || \
-            [ -f "$root/compose.vps.yml" ] || [ -f "$root/compose/compose.vps.yml" ] || \
-            die "Refusing to delete a directory without a Torrentflix Compose file: $root"
-        case "$root" in
-            "${HOME:-}"/torrentflix)
-                if [ "$delete_data" = 1 ]; then
-                    rm -rf -- "$root"
-                else
-                    rm -rf -- "$root/compose" "$root/deluge" "$root/plex"
-                    rmdir -- "$root" 2>/dev/null || true
-                fi
-                ;;
-            *)
-                rm -rf -- "$root"
-                ;;
-        esac
-    }
-    command -v docker >/dev/null || die "Docker is required"
-    command -v curl >/dev/null || die "curl is required"
-    command -v tar >/dev/null || die "tar is required"
-    command -v openssl >/dev/null || die "openssl is required"
-    if ! command -v sha256sum >/dev/null 2>&1 && ! command -v shasum >/dev/null 2>&1; then
-        die "sha256sum or shasum is required"
-    fi
-
-    sha256_file() {
-        if command -v sha256sum >/dev/null 2>&1; then
-            sha256sum "$1" | awk '{print $1}'
-        else
-            shasum -a 256 "$1" | awk '{print $1}'
-        fi
-    }
-
-    configure_runtime_paths
-    configure_runtime_identity
-
-    declare -a EXISTING_STACKS=()
-    declare -a EXISTING_ROOTS=()
-    declare -a CANDIDATE_ROOTS=("$RUNTIME_ROOT")
-    [ "$RUNTIME_ROOT" = /opt/torrentflix ] || CANDIDATE_ROOTS+=("/opt/torrentflix")
-    [ "$RUNTIME_ROOT" = /opt/deluge ] || CANDIDATE_ROOTS+=("/opt/deluge")
-    if [ -n "${HOME:-}" ]; then
-        [ "$RUNTIME_ROOT" = "$HOME/torrentflix" ] || CANDIDATE_ROOTS+=("$HOME/torrentflix")
-        [ "$RUNTIME_ROOT" = "$HOME/Downloads/deluge" ] || CANDIDATE_ROOTS+=("$HOME/Downloads/deluge")
-    fi
-
-    for candidate_root in "${CANDIDATE_ROOTS[@]}"; do
-        for candidate_file in \
-            "$candidate_root/compose/compose.vps.yml" \
-            "$candidate_root/compose/compose.yml" \
-            "$candidate_root/compose.vps.yml" \
-            "$candidate_root/compose.yml" \
-            "$candidate_root/nginx/compose.yml"
-        do
-            if [ -f "$candidate_file" ] && compose_is_running "$candidate_file" "${candidate_file%/*}"; then
-                EXISTING_STACKS+=("$candidate_file")
-                existing_root="$candidate_root"
-                already_listed=0
-                if [ "${#EXISTING_ROOTS[@]}" -gt 0 ]; then
-                    for listed_root in "${EXISTING_ROOTS[@]}"; do
-                        [ "$listed_root" = "$existing_root" ] && already_listed=1
-                    done
-                fi
-                [ "$already_listed" = 1 ] || EXISTING_ROOTS+=("$existing_root")
-            fi
-        done
-    done
-
-    if [ "${#EXISTING_STACKS[@]}" -gt 0 ]; then
-        clear_terminal
-        printf '%s%s%s\n' "$COLOR_LINE" "A running Torrentflix installation was found" "$COLOR_RESET"
-        echo
-        for existing_stack in "${EXISTING_STACKS[@]}"; do
-            printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "   Running: $existing_stack" "$COLOR_RESET"
-        done
-        echo
-        printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "   Install keeps config, password and downloads." "$COLOR_RESET"
-        echo
-        printf '%s%s.%s %s%s%s\n' "$COLOR_LINE" "1" "$COLOR_RESET" "$COLOR_TEXT" "Install" "$COLOR_RESET"
-        printf '%s%s.%s %s%s%s\n' "$COLOR_LINE" "2" "$COLOR_RESET" "$COLOR_TEXT" "Delete" "$COLOR_RESET"
-        echo
-        read -r -p "?: " STOP_EXISTING
-        STOP_EXISTING="${STOP_EXISTING:-1}"
-        case "$STOP_EXISTING" in
-            1)
-                clear_terminal
-                for existing_stack in "${EXISTING_STACKS[@]}"; do
-                    echo "[+] Stopping $existing_stack..."
-                    stop_compose_stack "$existing_stack"
-                done
-                ;;
-            2)
-                echo
-                printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "Delete removes the Torrentflix application and configuration directory." "$COLOR_RESET"
-                printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "Server downloads and media under /srv/torrentflix are preserved." "$COLOR_RESET"
-                read -r -p "Type DELETE to confirm: " DELETE_CONFIRM
-                [ "$DELETE_CONFIRM" = "DELETE" ] || exit 0
-                DELETE_DATA=0
-                for existing_root in "${EXISTING_ROOTS[@]}"; do
-                    if [ "$existing_root" = "${HOME:-}/torrentflix" ]; then
-                        echo
-                        printf '%s1.%s Keep local downloads and remove configuration only%s\n' "$COLOR_LINE" "$COLOR_RESET" "$COLOR_RESET"
-                        printf '%s2.%s Remove configuration and local downloads%s\n' "$COLOR_LINE" "$COLOR_RESET" "$COLOR_RESET"
-                        read -r -p "?: " DELETE_DATA_CHOICE
-                        case "${DELETE_DATA_CHOICE:-1}" in
-                            1) DELETE_DATA=0 ;;
-                            2) DELETE_DATA=1 ;;
-                            *) die "Choose 1 or 2" ;;
-                        esac
-                    fi
-                done
-                for existing_stack in "${EXISTING_STACKS[@]}"; do
-                    stop_compose_stack "$existing_stack" || true
-                done
-                for existing_root in "${EXISTING_ROOTS[@]}"; do
-                    delete_runtime_root "$existing_root" "$DELETE_DATA"
-                    echo "[+] Deleted $existing_root"
-                done
-                exit 0
-                ;;
-            *) die "Choose 1 or 2" ;;
-        esac
-    fi
-
-    DOMAIN=""
-    HSTS_POLICY="max-age=63072000"
-    PEER_PORT=""
-    SAVED_DOWNLOAD_DIR="$(env_value DOWNLOAD_DIR)"
-    [ -n "$SAVED_DOWNLOAD_DIR" ] && DEFAULT_DOWNLOAD_DIR="$SAVED_DOWNLOAD_DIR"
-    SAVED_MEDIA_DIR="$(env_value MEDIA_DIR)"
-    [ -n "$SAVED_MEDIA_DIR" ] && DEFAULT_MEDIA_DIR="$SAVED_MEDIA_DIR"
-    if [ "$MODE" = vps ]; then
-        read -r -p "Hostname for Deluge HTTPS [deluge.example.com]: " DOMAIN_INPUT
-        DOMAIN="${DOMAIN_INPUT:-deluge.example.com}"
-        case "$DOMAIN" in
-            ''|*[!A-Za-z0-9.-]*) die "Domain contains unsupported characters" ;;
-        esac
-        read -r -p "Enable HSTS for subdomains/preload? [y/N]: " HSTS_INPUT
-        case "$HSTS_INPUT" in
-            y|Y|yes|YES) HSTS_POLICY="max-age=63072000; includeSubDomains; preload" ;;
-        esac
-    fi
-
-    read -r -p "Incoming BitTorrent host port (optional, disabled by default): " PEER_PORT
-    if [ -n "$PEER_PORT" ]; then
-        [[ "$PEER_PORT" =~ ^[0-9]+$ ]] || die "Peer port must be numeric"
-        [ "$PEER_PORT" -ge 1 ] && [ "$PEER_PORT" -le 65535 ] || die "Peer port must be between 1 and 65535"
-        [ "$MODE" != vps ] || { [ "$PEER_PORT" != 80 ] && [ "$PEER_PORT" != 443 ]; } || \
-            die "Peer port 80 and 443 are reserved by bundled Nginx"
-        [ "$MODE" = vps ] || [ "$PEER_PORT" != 8112 ] || die "Peer port cannot be 8112 because that port is used by the WebUI"
-    fi
-
-    read -r -p "Download directory [$DEFAULT_DOWNLOAD_DIR]: " DOWNLOAD_DIR_INPUT
-    DOWNLOAD_DIR="${DOWNLOAD_DIR_INPUT:-$DEFAULT_DOWNLOAD_DIR}"
-    case "$DOWNLOAD_DIR" in
-        /*) ;;
-        *) die "Download directory must be absolute" ;;
+safe_delete_root() {
+    local root="$1" type="$2"; [ -n "$root" ] && [ "$root" != / ] && [ ! -L "$root" ] || die 'Unsafe delete target'; [ "$root" != "$SCRIPT_DIR" ] || die 'Refusing to delete the git checkout'
+    case "$type" in
+        service) [ "$root" = /opt/torrentflix/deluge ] || [ "$root" = /opt/torrentflix/plex ] || die 'Path is not an approved service root' ;;
+        local) path_contains "$REAL_HOME" "$root" || die 'Path is outside the local runtime root' ;;
+        downloads) [ "$root" = "$REAL_HOME/Downloads/torrentflix-downloads" ] || die 'Path is not the managed downloads path' ;;
+        *) die 'Unknown delete type' ;;
     esac
-    MEDIA_DIR="$DEFAULT_MEDIA_DIR"
-    ensure_runtime_directories
-
-    # Migrate data from the previous checkout-based layout when it exists.
-    if [ ! -e "$DELUGE_CONFIG_DIR/.torrentflix-migrated" ]; then
-        for legacy_root in /opt/deluge "${HOME:-}"/Downloads/deluge; do
-            if [ -d "$legacy_root/config" ] && [ "$legacy_root/config" != "$DELUGE_CONFIG_DIR" ]; then
-                cp -a "$legacy_root/config/." "$DELUGE_CONFIG_DIR/"
-                if [ -f "$legacy_root/secrets/webui.password" ] && [ ! -s "$PASSWORD_FILE" ]; then
-                    cp "$legacy_root/secrets/webui.password" "$PASSWORD_FILE"
-                fi
-                break
-            fi
-        done
-        if [ "$MODE" != local ]; then
-            for legacy_root in /opt/plex; do
-                if [ -d "$legacy_root/config/plex/db" ] && [ ! -e "$PLEX_CONFIG_DIR/Preferences.xml" ]; then
-                    cp -a "$legacy_root/config/plex/db/." "$PLEX_CONFIG_DIR/"
-                    break
-                fi
-            done
-        fi
-        touch "$DELUGE_CONFIG_DIR/.torrentflix-migrated"
-    fi
-    chown -R "$DELUGE_UID:$DELUGE_GID" "$DELUGE_CONFIG_DIR" "$SECRETS_DIR"
-    if [ "$MODE" != local ]; then
-        chown -R "$PLEX_UID:$PLEX_GID" "$PLEX_CONFIG_DIR" "$PLEX_TRANSCODE_DIR"
-    fi
-
-    echo "[+] Installing the required project files into $COMPOSE_ROOT..."
-    cp "$PROJECT_DIR/deluge/Dockerfile" "$COMPOSE_ROOT/Dockerfile"
-    cp "$PROJECT_DIR/deluge/compose.yml" "$COMPOSE_ROOT/compose.yml"
-    cp "$PROJECT_DIR/deluge/.dockerignore" "$COMPOSE_ROOT/.dockerignore"
-    rm -f "$PEER_COMPOSE_FILE"
-
-    rm -rf "$NGINX_DIR" "$VPS_COMPOSE_FILE"
-
-    if [ "$MODE" = vps ]; then
-        COMPOSE_FILE="$VPS_COMPOSE_FILE"
-        cp "$PROJECT_DIR/deluge/compose.vps.yml" "$COMPOSE_FILE"
-        mkdir -p "$NGINX_DIR/conf.d.runtime" "$NGINX_DIR/www"
-        cp "$SOURCE_NGINX_DIR/Dockerfile" "$NGINX_DIR/Dockerfile"
-        sed "s|__HSTS_POLICY__|$HSTS_POLICY|g" \
-            "$SOURCE_NGINX_DIR/nginx.conf" > "$NGINX_DIR/nginx.conf"
-    fi
-
-    if [ -n "$PEER_PORT" ]; then
-        cp "$PROJECT_DIR/deluge/compose.peer.yml" "$PEER_COMPOSE_FILE"
-    fi
-
-    cat > "$ENV_FILE" <<EOF
-MODE=$MODE
-RUNTIME_ROOT=$RUNTIME_ROOT
-MEDIA_GID=$MEDIA_GID
-DELUGE_UID=$DELUGE_UID
-DELUGE_GID=$DELUGE_GID
-PLEX_UID=$PLEX_UID
-PLEX_GID=$PLEX_GID
-PLEX_CONFIG_DIR=$PLEX_CONFIG_DIR
-PLEX_TRANSCODE_DIR=$PLEX_TRANSCODE_DIR
-DOWNLOAD_DIR=$DOWNLOAD_DIR
-MEDIA_DIR=$MEDIA_DIR
-DELUGE_IMAGE=$IMAGE
-WEB_DIR=$WEB_DIR
-DELUGE_CONFIG_DIR=$DELUGE_CONFIG_DIR
-WEB_PORT=8112
-WEB_BIND_IP=$WEB_BIND_IP
-PRIMARY_DOMAIN=$DOMAIN
-HSTS_POLICY=$HSTS_POLICY
-PEER_PORT=$PEER_PORT
-PEER_BIND_IP=0.0.0.0
-PLEX_CLAIM=
-PLEX_IMAGE=$(env_value PLEX_IMAGE)
-PLEX_MEM_LIMIT=$(env_value PLEX_MEM_LIMIT)
-PLEX_MEM_RESERVATION=$(env_value PLEX_MEM_RESERVATION)
-PLEX_CPUS=$(env_value PLEX_CPUS)
-PLEX_PIDS_LIMIT=$(env_value PLEX_PIDS_LIMIT)
-EOF
-    chmod 600 "$ENV_FILE"
-
-    if [ ! -s "$PASSWORD_FILE" ]; then
-        umask 077
-        openssl rand -hex 16 > "$PASSWORD_FILE"
-    fi
-    chmod 600 "$PASSWORD_FILE"
-
-    echo "[+] Downloading theme..."
-    rm -rf "$THEME_DIR"
-    mkdir -p "$THEME_DIR"
-    THEME_ARCHIVE="$(mktemp)"
-    curl -fsSL "$THEME_URL" -o "$THEME_ARCHIVE"
-    [ "$(sha256_file "$THEME_ARCHIVE")" = "$THEME_SHA256" ] || {
-        rm -f "$THEME_ARCHIVE"
-        die "Theme checksum verification failed"
-    }
-    tar -xzf "$THEME_ARCHIVE" -C "$THEME_DIR"
-    rm -f "$THEME_ARCHIVE"
-    [ -d "$THEME_DIR/icons" ] || die "Theme icons are missing"
-    [ -d "$THEME_DIR/images" ] || die "Theme images are missing"
-    [ -f "$THEME_DIR/themes/css/xtheme-dark.css" ] || die "Theme CSS is missing"
-
-    if [ "$MODE" = vps ]; then
-        echo "[+] Generating bundled Nginx configuration..."
-        rm -rf "$NGINX_RUNTIME_CONF"
-        mkdir -p "$NGINX_RUNTIME_CONF"
-        cp "$SOURCE_NGINX_DIR/conf.d/00-acme.conf" "$NGINX_RUNTIME_CONF/00-acme.conf"
-        sed "s/domain\.com/$DOMAIN/g" \
-            "$SOURCE_NGINX_DIR/conf.d/domain.com.conf" > "$NGINX_RUNTIME_CONF/$DOMAIN.conf"
-    fi
-
-    echo "[+] Building Deluge image..."
-    COMPOSE_ARGS=(--env-file "$ENV_FILE" -f "$COMPOSE_FILE")
-    [ -f "$PEER_COMPOSE_FILE" ] && COMPOSE_ARGS+=( -f "$PEER_COMPOSE_FILE" )
-    compose() { docker compose "${COMPOSE_ARGS[@]}" "$@"; }
-    compose build --pull
-    echo "[+] Starting Deluge..."
-    compose up -d
-
-    echo "[+] Waiting for Deluge WebUI..."
-    READY=0
-    for _ in $(seq 1 60); do
-        if [ "$MODE" = vps ]; then
-            if compose exec -T nginx \
-                sh -c 'curl -fsS http://deluge:8112/ >/dev/null' >/dev/null 2>&1; then
-                READY=1
-                break
-            fi
-        else
-            if curl -fsS "http://127.0.0.1:8112/" >/dev/null 2>&1; then
-                READY=1
-                break
-            fi
-        fi
-        sleep 1
-    done
-
-    if [ "$READY" != 1 ]; then
-        compose logs --tail=100 deluge
-        die "WebUI failed"
-    fi
-
-    COOKIE="$(mktemp)"
-    trap 'rm -f "$COOKIE"' EXIT
-    WEB_URL="http://127.0.0.1:8112/json"
-    WEB_PASSWORD="$(cat "$PASSWORD_FILE")"
-
-    rpc() {
-        if [ "$MODE" = vps ]; then
-            printf '%s' "$1" | compose \
-                exec -T nginx sh -c \
-                'curl -fsS -c /tmp/torrentflix-rpc.cookies -b /tmp/torrentflix-rpc.cookies \
-                    -H "Content-Type: application/json" --data-binary @- http://deluge:8112/json'
-        else
-            printf '%s' "$1" | curl -fsS -c "$COOKIE" -b "$COOKIE" \
-                -H 'Content-Type: application/json' --data-binary @- "$WEB_URL"
-        fi
-    }
-
-    LOGIN="$(rpc "{\"method\":\"auth.login\",\"params\":[\"$WEB_PASSWORD\"],\"id\":1}")"
-
-    if echo "$LOGIN" | grep -q '"result": true'; then
-        echo "[+] Existing WebUI password accepted"
+    if [ "$type" = downloads ]; then
+        marker_matches "$root" downloads || die 'Managed downloads marker is missing or invalid'
     else
-        LOGIN="$(rpc '{"method":"auth.login","params":["deluge"],"id":1}')"
-        echo "$LOGIN" | grep -q '"result": true' || die "WebUI login failed: $LOGIN"
-
-        echo "[+] Changing WebUI password..."
-        PASSWORD_RESULT="$(
-            rpc "{\"method\":\"auth.change_password\",\"params\":[\"deluge\",\"$WEB_PASSWORD\"],\"id\":2}"
-        )"
-        echo "$PASSWORD_RESULT" | grep -q '"result": true' || {
-            echo "[!] Password change failed: $PASSWORD_RESULT"
-            exit 1
-        }
-    fi
-
-    if [ -n "$PEER_PORT" ]; then
-        echo "[+] Configuring Deluge inbound peer port..."
-        PEER_RESULT="$(rpc '{"method":"core.set_config","params":[{"random_port":false,"listen_ports":[6881,6881]}],"id":4}')"
-        echo "$PEER_RESULT" | grep -q '"error": null' || {
-            echo "[!] Peer port configuration failed: $PEER_RESULT"
-            exit 1
-        }
-
-        PEER_CONFIG="$(rpc '{"method":"core.get_config_values","params":[["random_port","listen_ports"]],"id":5}')"
-        echo "$PEER_CONFIG" | grep -q '"error": null' || {
-            echo "[!] Peer port verification failed: $PEER_CONFIG"
-            exit 1
-        }
-        echo "$PEER_CONFIG" | grep -Eq '"random_port"[[:space:]]*:[[:space:]]*false' || {
-            echo "[!] Deluge random port setting was not disabled: $PEER_CONFIG"
-            exit 1
-        }
-        echo "$PEER_CONFIG" | grep -Eq '"listen_ports"[[:space:]]*:[[:space:]]*\[[[:space:]]*6881[[:space:]]*,[[:space:]]*6881[[:space:]]*\]' || {
-            echo "[!] Deluge listen ports were not set to 6881: $PEER_CONFIG"
-            exit 1
-        }
-    fi
-
-    THEME_RESULT="$(rpc '{"method":"web.set_theme","params":["dark"],"id":6}')"
-    echo "$THEME_RESULT" | grep -Eq '"result": true|"error": null' || die "Theme API failed: $THEME_RESULT"
-
-    if [ "$MODE" = home_server ]; then
-        WEBUI_URL="http://SERVER_IP:8112"
-        echo
-        echo "Deluge is running in Home Server (LAN Only) mode."
-        echo "WebUI: http://SERVER_IP:8112"
-    elif [ "$MODE" = local ]; then
-        WEBUI_URL="http://localhost:8112"
-        echo
-        echo "Deluge is running in Local mode."
-        echo "WebUI: http://localhost:8112"
-    else
-        WEBUI_URL="https://$DOMAIN/deluge/"
-        echo
-        echo "Deluge and bundled Nginx are running."
-        echo "URL: https://$DOMAIN/deluge/"
-    fi
-
-    clear_terminal
-    echo "Runtime root:   $RUNTIME_ROOT"
-    echo "WebUI URL:     $WEBUI_URL"
-    echo "Password file: $PASSWORD_FILE"
-    echo "WebUI password: $WEB_PASSWORD"
-    echo "Downloads:     $DOWNLOAD_DIR"
-    if [ -z "$PEER_PORT" ]; then
-        echo "Peer port:     internal only"
-    else
-        echo "Peer port:     $PEER_PORT -> container 6881 (TCP/UDP)"
+        marker_matches "$root" runtime || die 'Managed runtime marker is missing or invalid'
     fi
 }
 
-select_installation_mode
+run_uninstall() {
+    prepare_mode_context; local target choice confirm
+    if [ "$MODE" = local ]; then target="$DELUGE_ROOT"; else read -r -p 'Remove Deluge or Plex? [deluge/plex]: ' target; case "$target" in deluge) target="$DELUGE_ROOT" ;; plex) target="$PLEX_ROOT" ;; *) die 'Choose deluge or plex' ;; esac; fi
+    [ -d "$target" ] || { echo "Nothing installed at $target"; return; }
+    if [ "$target" = "$DELUGE_ROOT" ]; then
+        if [ -f "$COMPOSE_FILE" ] || [ -f "$VPS_COMPOSE_FILE" ]; then compose_args_deluge; docker compose "${COMPOSE_ARGS[@]}" down --remove-orphans 2>/dev/null || true; fi
+        DOWNLOAD_DIR="$(env_value "$DELUGE_ENV" DOWNLOAD_DIR)"; DOWNLOAD_MANAGED="$(env_value "$DELUGE_ENV" DOWNLOAD_MANAGED)"; read -r -p '1) Remove configuration only  2) Also remove downloaded torrents [1]: ' choice; choice="${choice:-1}"
+        if [ "$choice" = 2 ] && [ "$DOWNLOAD_MANAGED" = true ]; then read -r -p 'Type DELETE DOWNLOADS to permanently remove downloads: ' confirm; [ "$confirm" = 'DELETE DOWNLOADS' ] || die 'Downloads were not removed'; safe_delete_root "$DOWNLOAD_DIR" downloads; rm -rf -- "$DOWNLOAD_DIR"; fi
+        if [ "$MODE" = local ]; then safe_delete_root "$target" local; else safe_delete_root "$target" service; fi
+        if [ "$DOWNLOAD_MANAGED" = true ] && [ "$DOWNLOAD_DIR" = "$DELUGE_ROOT/downloads" ] && [ -d "$DOWNLOAD_DIR" ]; then
+            find "$target" -mindepth 1 -maxdepth 1 ! -name downloads ! -name .torrentflix-managed -exec rm -rf -- {} +
+        else
+            rm -rf -- "$target"
+        fi
+        echo '[+] Deluge configuration removed; downloads preserved unless explicitly deleted'
+    else
+        docker compose --env-file "$PLEX_ENV" -f "$PLEX_ROOT/compose.yml" down --remove-orphans 2>/dev/null || true; MEDIA_DIR="$(env_value "$PLEX_ENV" MEDIA_DIR)"; MEDIA_MANAGED="$(env_value "$PLEX_ENV" MEDIA_MANAGED)"; safe_delete_root "$target" service
+        if [ "$MEDIA_MANAGED" = true ] && [ "$MEDIA_DIR" = "$PLEX_ROOT/media" ] && [ -d "$MEDIA_DIR" ]; then
+            find "$target" -mindepth 1 -maxdepth 1 ! -name media ! -name .torrentflix-managed -exec rm -rf -- {} +
+            echo '[+] Plex configuration removed; managed media preserved'
+        else
+            rm -rf -- "$target"; echo '[+] Plex configuration removed; external media was not touched'
+        fi
+        [ "$MEDIA_MANAGED" = true ] && echo "Managed Plex media preserved at: $MEDIA_DIR"
+    fi
+}
 
-clear_terminal
-printf '%s%s%s\n' "$COLOR_LINE" "Torrentflix" "$COLOR_RESET"
-echo
-printf '%s%s%s\n' "$COLOR_TEXT" "What would you like to install?" "$COLOR_RESET"
-echo
-printf '%s1.%s %sDeluge%s\n' "$COLOR_LINE" "$COLOR_RESET" "$COLOR_TEXT" "$COLOR_RESET"
-printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "   Download files with magnet links or torrent files." "$COLOR_RESET"
-if [ "$MODE" != local ]; then
-    printf '%s2.%s %sPlex%s\n' "$COLOR_LINE" "$COLOR_RESET" "$COLOR_TEXT" "$COLOR_RESET"
-    printf '%b%s%b\n' "$COLOR_MUTED_ITALIC" "   Stream your media library on your server." "$COLOR_RESET"
-fi
-echo
-read -r -p "?: " SERVICE
-SERVICE="${SERVICE:-1}"
+select_installation_mode() {
+    clear_terminal; printf '%sTorrentflix%s\n\n' "$LINE" "$RESET"; echo 'Select installation mode.'; echo; printf '%s1.%s VPS (Public Server)\n' "$LINE" "$RESET"; printf '%b%s%b\n' "$MUTED" '   Linux server, public HTTPS, bundled Nginx and Let’s Encrypt.' "$RESET"; printf '%s2.%s Home Server (LAN Only)\n' "$LINE" "$RESET"; printf '%b%s%b\n' "$MUTED" '   Always-on Linux server or NAS. No domain or public Nginx.' "$RESET"; printf '%s3.%s Local (macOS/Linux)\n' "$LINE" "$RESET"; printf '%b%s%b\n' "$MUTED" '   Personal computer. Deluge only; no Plex in Local mode.' "$RESET"; echo; read -r -p '?: ' MODE_CHOICE; MODE_CHOICE="${MODE_CHOICE:-$([ "$HOST_OS" = Darwin ] && echo 3 || echo 1)}"; case "$MODE_CHOICE" in 1) MODE=vps ;; 2) MODE=home_server ;; 3) MODE=local ;; *) die 'Choose 1, 2 or 3' ;; esac
+    if [ "$MODE" != local ]; then [ "$HOST_OS" = Linux ] || die 'Server modes require Linux'; [ "$(id -u)" -eq 0 ] || die 'Run server mode as root: sudo ./run.sh'; else [ "$HOST_OS" = Linux ] || [ "$HOST_OS" = Darwin ] || die 'Local mode supports Linux and macOS'; fi
+}
 
-case "$SERVICE" in
-    1) run_deluge ;;
-    2)
-        [ "$MODE" != local ] || { echo "[!] Plex is available only in server modes" >&2; exit 1; }
-        run_plex
-        ;;
-    *) echo "[!] Choose 1 or 2" >&2; exit 1 ;;
-esac
+select_installation_mode; clear_terminal; printf '%sTorrentflix%s\n\n' "$LINE" "$RESET"; echo 'What would you like to do?'; echo; printf '%s1.%s Install Deluge\n' "$LINE" "$RESET"
+if [ "$MODE" != local ]; then printf '%s2.%s Install Plex\n' "$LINE" "$RESET"; printf '%s3.%s Uninstall a service\n' "$LINE" "$RESET"; else printf '%s2.%s Uninstall Deluge\n' "$LINE" "$RESET"; fi
+echo; read -r -p '?: ' SERVICE; SERVICE="${SERVICE:-1}"
+if [ "$MODE" = local ]; then case "$SERVICE" in 1) run_deluge ;; 2) run_uninstall ;; *) die 'Choose 1 or 2' ;; esac; else case "$SERVICE" in 1) run_deluge ;; 2) run_plex ;; 3) run_uninstall ;; *) die 'Choose 1, 2 or 3' ;; esac; fi

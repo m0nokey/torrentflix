@@ -1,5 +1,0 @@
-services:
-  deluge:
-    ports:
-      - "${PEER_BIND_IP:-0.0.0.0}:${PEER_PORT}:6881/tcp"
-      - "${PEER_BIND_IP:-0.0.0.0}:${PEER_PORT}:6881/udp"
