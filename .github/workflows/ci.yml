@@ -8,7 +8,50 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      code_changed: ${{ steps.changed.outputs.code_changed }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+
+      - name: Detect documentation-only changes
+        id: changed
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+              base_sha="$BASE_SHA"
+          else
+              base_sha="$BEFORE_SHA"
+          fi
+
+          if [[ -z "$base_sha" || "$base_sha" =~ ^0+$ ]]; then
+              base_sha="$(git rev-parse "$HEAD_SHA^")"
+          fi
+
+          code_changed=false
+
+          while IFS= read -r changed_file; do
+              if [[ "$changed_file" != README.md ]]; then
+                  code_changed=true
+                  break
+              fi
+          done < <(git diff --name-only "$base_sha" "$HEAD_SHA")
+
+          printf 'code_changed=%s\n' "$code_changed" >> "$GITHUB_OUTPUT"
+
   validate:
+    needs: changes
     runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
@@ -54,8 +97,11 @@ jobs:
           ! grep -Eq 'published: (6881|[0-9]+).*target: 6881|target: 6881.*published:' <<< "$vps_rendered"
 
   build:
+    if: needs.changes.outputs.code_changed == 'true'
     runs-on: ubuntu-24.04
-    needs: validate
+    needs:
+      - changes
+      - validate
     steps:
       - name: Check out repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -82,8 +128,10 @@ jobs:
         run: docker build --pull -f deluge/nginx/Dockerfile -t torrentflix-ci-nginx deluge/nginx
 
   smoke:
+    if: needs.changes.outputs.code_changed == 'true'
     runs-on: ubuntu-24.04
     needs:
+      - changes
       - validate
       - build
     timeout-minutes: 15
