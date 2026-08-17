@@ -953,8 +953,9 @@ confirm_deluge_download_deletion() {
         clear_terminal
         printf '%sTorrentflix%s\n\n' "$LINE" "$RESET"
         printf '%s\n\n' 'Permanent download removal'
-        printf '%b%s%b\n\n' "$MUTED" 'This permanently deletes managed downloaded files.' "$RESET"
-        printf 'Are you sure you want to delete downloaded files? [y/N]\n\n'
+        printf '%b%s%b\n' "$MUTED" 'This permanently deletes the Deluge runtime and managed downloaded files.' "$RESET"
+        printf '%b%s%b\n\n' "$MUTED" 'External download directories are never removed.' "$RESET"
+        printf 'Are you sure you want to continue? [y/N]\n\n'
         read -r -p '?: ' delete_confirmation
 
         case "$delete_confirmation" in
@@ -991,6 +992,8 @@ remove_plex_configuration() {
 }
 
 uninstall_deluge() {
+    local downloads_removed=false
+
     if [[ ! -d "$DELUGE_ROOT" ]]; then
         printf 'Nothing installed at %s\n' "$DELUGE_ROOT"
         return
@@ -1006,6 +1009,7 @@ uninstall_deluge() {
         if confirm_deluge_download_deletion; then
             safe_delete_root "$DOWNLOAD_DIR" downloads
             rm -rf -- "$DOWNLOAD_DIR"
+            downloads_removed=true
         else
             printf '%s\n' '[+] Downloaded files preserved'
         fi
@@ -1018,7 +1022,12 @@ uninstall_deluge() {
     fi
 
     remove_deluge_configuration
-    printf '%s\n' '[+] Deluge configuration removed; downloads preserved unless explicitly deleted'
+
+    if [[ "$downloads_removed" == true ]]; then
+        printf '%s\n' '[+] Deluge configuration and managed downloads removed'
+    else
+        printf '%s\n' '[+] Deluge configuration removed; downloads preserved'
+    fi
 }
 
 uninstall_plex() {
