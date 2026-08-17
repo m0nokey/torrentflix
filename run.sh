@@ -209,12 +209,12 @@ prepare_managed_directory() {
             write_managed_marker "$directory_path" "$managed_type"
         fi
     else
-        install -d -o "$owner_uid" -g "$owner_gid" -m "$directory_mode" -- "$directory_path"
+        install -d -o "$owner_uid" -g "$owner_gid" -m "$directory_mode" "$directory_path"
         write_managed_marker "$directory_path" "$managed_type"
     fi
 
-    chown "$owner_uid:$owner_gid" -- "$directory_path" "$directory_path/.torrentflix-managed"
-    chmod "$directory_mode" -- "$directory_path"
+    chown "$owner_uid:$owner_gid" "$directory_path" "$directory_path/.torrentflix-managed"
+    chmod "$directory_mode" "$directory_path"
 }
 
 id_in_use() {
@@ -423,7 +423,7 @@ prepare_deluge_directories() {
         fi
     fi
 
-    chown -R "$DELUGE_UID:$DELUGE_GID" -- "$DELUGE_CONFIG_DIR" "$SECRETS_DIR"
+    chown -R "$DELUGE_UID:$DELUGE_GID" "$DELUGE_CONFIG_DIR" "$SECRETS_DIR"
 }
 
 prepare_plex_directories() {
@@ -439,7 +439,7 @@ prepare_plex_directories() {
         fi
     fi
 
-    chown -R "$PLEX_UID:$PLEX_GID" -- "$PLEX_CONFIG_DIR" "$PLEX_TRANSCODE_DIR"
+    chown -R "$PLEX_UID:$PLEX_GID" "$PLEX_CONFIG_DIR" "$PLEX_TRANSCODE_DIR"
 }
 
 select_download_directory() {
