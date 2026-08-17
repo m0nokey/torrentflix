@@ -952,7 +952,14 @@ uninstall_deluge() {
     DOWNLOAD_MANAGED="$(read_env_value "$DELUGE_ENV" DOWNLOAD_MANAGED)"
     stop_deluge_stack
 
-    read -r -p '1) Remove configuration only  2) Also remove downloaded torrents [1]: ' delete_choice
+    clear_terminal
+    printf '%sTorrentflix%s\n\n' "$LINE" "$RESET"
+    printf '%s\n\n' 'How would you like to remove Deluge?'
+    printf '%s1.%s Remove configuration only\n' "$LINE" "$RESET"
+    printf '%s2.%s Full remove with downloaded torrent files\n' "$LINE" "$RESET"
+    printf '%b%s%b\n' "$MUTED" '   The second option permanently deletes managed downloads.' "$RESET"
+    printf '\n'
+    read -r -p '?: ' delete_choice
     delete_choice="${delete_choice:-1}"
 
     if [[ "$delete_choice" == 2 && "$DOWNLOAD_MANAGED" == true ]]; then
@@ -1012,16 +1019,32 @@ uninstall_service() {
         return
     fi
 
-    read -r -p 'Remove Deluge or Plex? [deluge/plex]: ' selected_service
+    clear_terminal
+    printf '%sTorrentflix%s\n\n' "$LINE" "$RESET"
+    printf '%s\n\n' 'Which service would you like to uninstall?'
+    printf '%s1.%s Deluge\n' "$LINE" "$RESET"
+    printf '%s2.%s Plex\n' "$LINE" "$RESET"
+    printf '\n'
+    read -r -p '?: ' selected_service
+
+    case "$selected_service" in
+        1)
+            selected_service=deluge
+            ;;
+        2)
+            selected_service=plex
+            ;;
+        *)
+            die 'Choose 1 or 2'
+            ;;
+    esac
+
     case "$selected_service" in
         deluge)
             uninstall_deluge
             ;;
         plex)
             uninstall_plex
-            ;;
-        *)
-            die 'Choose deluge or plex'
             ;;
     esac
 }
