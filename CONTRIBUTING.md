@@ -16,6 +16,11 @@ The scheduled theme-maintenance workflow handles the one custom dependency
 Renovate cannot safely update by itself: the Deluge theme commit and its
 SHA-256. It opens a normal pull request, so the same CI gate applies.
 
+The stable CI checks are `validate`, `build` and `smoke`. The smoke job starts
+Deluge, the VPS Nginx-to-Deluge stack and Plex using temporary CI paths, checks
+HTTP readiness and prints container logs on failure. Configure all three jobs
+as required checks for `main`; Renovate updates must not bypass them.
+
 ## Bash style
 
 Shell scripts use Bash with `set -euo pipefail`, four-space indentation and

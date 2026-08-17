@@ -80,3 +80,217 @@ jobs:
 
       - name: Build bundled Nginx image
         run: docker build --pull -f deluge/nginx/Dockerfile -t torrentflix-ci-nginx deluge/nginx
+
+  smoke:
+    runs-on: ubuntu-24.04
+    needs:
+      - validate
+      - build
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
+
+      - name: Run container smoke tests
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          smoke_root="$RUNNER_TEMP/torrentflix-smoke"
+          lan_project='torrentflix-smoke-lan'
+          vps_project='torrentflix-smoke-vps'
+          plex_project='torrentflix-smoke-plex'
+          theme_commit='dbef18e3c9a2cb0f2448d16bb95dca868f94440e'
+          theme_sha256='5c3e6a4453fb06c16bc89f3b3789f12ba56b01addc111477211cb63e93f291bb'
+
+          wait_for_http() {
+              local url="$1"
+              local attempts="$2"
+              local delay="$3"
+              local attempt
+
+              for ((attempt = 1; attempt <= attempts; attempt++)); do
+                  if curl --fail --silent --show-error "$url" >/dev/null; then
+                      return 0
+                  fi
+
+                  sleep "$delay"
+              done
+
+              return 1
+          }
+
+          wait_for_container_http() {
+              local container_name="$1"
+              local url="$2"
+              local attempts="$3"
+              local delay="$4"
+              local attempt
+
+              for ((attempt = 1; attempt <= attempts; attempt++)); do
+                  if docker exec "$container_name" \
+                      curl --fail --silent --show-error "$url" >/dev/null; then
+                      return 0
+                  fi
+
+                  sleep "$delay"
+              done
+
+              return 1
+          }
+
+          assert_running() {
+              local container_name="$1"
+              local running
+              local restart_count
+
+              running="$(docker inspect --format '{{.State.Running}}' "$container_name")"
+              restart_count="$(docker inspect --format '{{.RestartCount}}' "$container_name")"
+
+              if [[ "$running" != true ]]; then
+                  printf 'Container is not running: %s\n' "$container_name" >&2
+                  return 1
+              fi
+
+              if [[ "$restart_count" != 0 ]]; then
+                  printf 'Container restarted during smoke test: %s (%s)\n' "$container_name" "$restart_count" >&2
+                  return 1
+              fi
+          }
+
+          prepare_theme() {
+              local archive_file="$RUNNER_TEMP/deluge-theme.tar.gz"
+              local theme_dir="$GITHUB_WORKSPACE/deluge/theme"
+              local theme_url
+
+              theme_url="https://raw.githubusercontent.com/joelacus/deluge-web-dark-theme/$theme_commit/deluge_web_dark_theme.tar.gz"
+              mkdir -p "$theme_dir"
+              curl --fail --silent --show-error "$theme_url" -o "$archive_file"
+
+              if [[ "$(sha256sum "$archive_file" | awk '{print $1}')" != "$theme_sha256" ]]; then
+                  printf '%s\n' 'Deluge theme checksum verification failed' >&2
+                  return 1
+              fi
+
+              tar -xzf "$archive_file" -C "$theme_dir"
+          }
+
+          write_deluge_env() {
+              local env_file="$1"
+              local config_dir="$2"
+              local download_dir="$3"
+              local web_port="$4"
+              local web_bind_ip="$5"
+
+              printf '%s\n' \
+                  'DELUGE_UID=1234' \
+                  'DELUGE_GID=1234' \
+                  "DELUGE_CONFIG_DIR=$config_dir" \
+                  "DOWNLOAD_DIR=$download_dir" \
+                  "WEB_PORT=$web_port" \
+                  "WEB_BIND_IP=$web_bind_ip" \
+                  'TZ=Etc/UTC' \
+                  > "$env_file"
+          }
+
+          mkdir -p "$smoke_root/lan/config" "$smoke_root/lan/downloads"
+          mkdir -p "$smoke_root/vps/config" "$smoke_root/vps/downloads"
+          mkdir -p "$smoke_root/plex/config" "$smoke_root/plex/transcode" "$smoke_root/plex/media"
+          chmod -R 0777 "$smoke_root"
+          prepare_theme
+
+          write_deluge_env \
+              "$smoke_root/lan.env" \
+              "$smoke_root/lan/config" \
+              "$smoke_root/lan/downloads" \
+              18112 \
+              127.0.0.1
+          write_deluge_env \
+              "$smoke_root/vps.env" \
+              "$smoke_root/vps/config" \
+              "$smoke_root/vps/downloads" \
+              18113 \
+              127.0.0.1
+
+          printf '%s\n' \
+              'services:' \
+              '  nginx:' \
+              '    ports: !override' \
+              '      - "127.0.0.1:18080:80"' \
+              '      - "127.0.0.1:18443:443"' \
+              > "$smoke_root/vps-ports.yml"
+
+          mkdir -p "$GITHUB_WORKSPACE/deluge/nginx/conf.d.runtime" "$GITHUB_WORKSPACE/deluge/nginx/www"
+          printf '%s\n' \
+              'server {' \
+              '    listen 80;' \
+              '    server_name _;' \
+              '    location / {' \
+              '        proxy_pass http://deluge:8112/;' \
+              '    }' \
+              '}' \
+              > "$GITHUB_WORKSPACE/deluge/nginx/conf.d.runtime/00-smoke.conf"
+
+          printf '%s\n' '--- Deluge Home Server smoke ---'
+          docker compose -p "$lan_project" --env-file "$smoke_root/lan.env" -f deluge/compose.yml build --pull deluge
+          docker compose -p "$lan_project" --env-file "$smoke_root/lan.env" -f deluge/compose.yml up -d
+          wait_for_http http://127.0.0.1:18112/ 30 2
+          assert_running deluge
+          docker compose -p "$lan_project" --env-file "$smoke_root/lan.env" -f deluge/compose.yml down -v --remove-orphans
+
+          printf '%s\n' '--- Deluge VPS + Nginx smoke ---'
+          docker compose -p "$vps_project" --env-file "$smoke_root/vps.env" -f deluge/compose.vps.yml -f "$smoke_root/vps-ports.yml" build --pull
+          docker compose -p "$vps_project" --env-file "$smoke_root/vps.env" -f deluge/compose.vps.yml -f "$smoke_root/vps-ports.yml" up -d
+          docker compose -p "$vps_project" --env-file "$smoke_root/vps.env" -f deluge/compose.vps.yml -f "$smoke_root/vps-ports.yml" exec -T nginx nginx -t
+          wait_for_container_http torrentflix-nginx http://deluge:8112/ 30 2
+          wait_for_http http://127.0.0.1:18080/ 30 2
+          assert_running deluge
+          assert_running torrentflix-nginx
+          docker compose -p "$vps_project" --env-file "$smoke_root/vps.env" -f deluge/compose.vps.yml -f "$smoke_root/vps-ports.yml" down -v --remove-orphans
+
+          printf '%s\n' '--- Plex smoke ---'
+          PLEX_UID=1234 \
+              PLEX_GID=1234 \
+              PLEX_CONFIG_DIR="$smoke_root/plex/config" \
+              PLEX_TRANSCODE_DIR="$smoke_root/plex/transcode" \
+              MEDIA_DIR="$smoke_root/plex/media" \
+              PLEX_CLAIM= \
+              docker compose -p "$plex_project" -f plex/compose.yml pull plex-server
+          PLEX_UID=1234 \
+              PLEX_GID=1234 \
+              PLEX_CONFIG_DIR="$smoke_root/plex/config" \
+              PLEX_TRANSCODE_DIR="$smoke_root/plex/transcode" \
+              MEDIA_DIR="$smoke_root/plex/media" \
+              PLEX_CLAIM= \
+              docker compose -p "$plex_project" -f plex/compose.yml up -d
+          wait_for_http http://127.0.0.1:32400/identity 60 3
+          assert_running plex-server
+
+      - name: Dump smoke diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          smoke_root="$RUNNER_TEMP/torrentflix-smoke"
+
+          docker compose -p torrentflix-smoke-lan --env-file "$smoke_root/lan.env" -f deluge/compose.yml ps
+          docker compose -p torrentflix-smoke-lan --env-file "$smoke_root/lan.env" -f deluge/compose.yml logs --tail=200
+          docker compose -p torrentflix-smoke-vps --env-file "$smoke_root/vps.env" -f deluge/compose.vps.yml -f "$smoke_root/vps-ports.yml" ps
+          docker compose -p torrentflix-smoke-vps --env-file "$smoke_root/vps.env" -f deluge/compose.vps.yml -f "$smoke_root/vps-ports.yml" logs --tail=200
+          docker compose -p torrentflix-smoke-plex -f plex/compose.yml ps
+          docker compose -p torrentflix-smoke-plex -f plex/compose.yml logs --tail=200
+
+      - name: Clean up smoke resources
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          smoke_root="$RUNNER_TEMP/torrentflix-smoke"
+
+          docker compose -p torrentflix-smoke-lan --env-file "$smoke_root/lan.env" -f deluge/compose.yml down -v --remove-orphans
+          docker compose -p torrentflix-smoke-vps --env-file "$smoke_root/vps.env" -f deluge/compose.vps.yml -f "$smoke_root/vps-ports.yml" down -v --remove-orphans
+          docker compose -p torrentflix-smoke-plex -f plex/compose.yml down -v --remove-orphans
+          docker rm -f deluge torrentflix-nginx plex-server 2>/dev/null || true
+          rm -rf -- "$smoke_root" deluge/theme deluge/nginx/conf.d.runtime deluge/nginx/www
