@@ -6,11 +6,13 @@ services:
     environment:
       TZ: ${TZ:-UTC}
       PLEX_CLAIM: ${PLEX_CLAIM:-}
+      PLEX_UID: ${PLEX_UID:-10002}
+      PLEX_GID: ${PLEX_GID:-10000}
     network_mode: host
     volumes:
-      - ${ROOT:-/opt/plex}/config/plex/db:/config
-      - ${ROOT:-/opt/plex}/config/plex/transcode:/transcode
-      - ${MEDIA_DIR:-/mnt/plexmedia}:/mnt/plexmedia
+      - ${PLEX_CONFIG_DIR:-/opt/torrentflix/plex/config}:/config
+      - ${PLEX_TRANSCODE_DIR:-/opt/torrentflix/plex/transcode}:/transcode
+      - ${MEDIA_DIR:-/srv/torrentflix/media}:/mnt/plexmedia
 
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=256m

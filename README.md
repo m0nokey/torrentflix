@@ -49,9 +49,9 @@ Click a preview to open the full-size image.
 | You want to... | Choose | What you get |
 |---|---|---|
 | Download from anywhere | **Deluge on a VPS** | HTTPS, Let's Encrypt and bundled Nginx |
-| Download at home | **Deluge in LAN mode** | No domain or Nginx; local WebUI |
-| Download temporarily on a Mac | **Deluge on macOS** | Docker Desktop, no root access, `http://localhost:8112` |
-| Watch media at home | **Plex in LAN mode** | Your own library at `http://SERVER_IP:32400/web` |
+| Download at home | **Deluge on a Home Server** | No domain or Nginx; local WebUI |
+| Download temporarily on a Mac | **Deluge in Local mode** | Docker Desktop, no root access, `http://localhost:8112` |
+| Watch media at home | **Plex on a Home Server** | Your own library at `http://SERVER_IP:32400/web` |
 | Watch media remotely | **Plex on a VPS** | Plex with local, NAS or synchronized storage |
 
 ## Quick start
@@ -60,7 +60,13 @@ Requirements: Docker Engine with Compose on Linux, or Docker Desktop on macOS, p
 
 ### Linux Docker access
 
-The Docker daemon normally runs with root privileges, but the installer itself does not need to be run as root. Give your user access to Docker once:
+VPS and Home Server installation is a server operation and must be started as root:
+
+```bash
+sudo ./run.sh
+```
+
+Local Linux installation can run as the normal desktop user. The installer does not add anyone to the `docker` group automatically. If Docker reports a permission error for `/var/run/docker.sock`, configure access separately:
 
 ```bash
 sudo usermod -aG docker "$USER"
@@ -68,7 +74,7 @@ newgrp docker
 docker info
 ```
 
-Important: membership in the `docker` group is effectively root-equivalent on the host. Add only trusted users.
+Important: membership in the `docker` group is effectively root-equivalent on the host. Add only trusted users. This is optional convenience access, not a Torrentflix installation step.
 
 If Docker is not running:
 
@@ -76,13 +82,7 @@ If Docker is not running:
 sudo systemctl enable --now docker
 ```
 
-The Linux runtime directories are `/opt/deluge` and `/opt/plex`. If your user cannot write there, prepare them once and then run `./run.sh` as your normal user:
-
-```bash
-sudo install -d -o "$USER" -g "$(id -gn)" /opt/deluge /opt/plex
-```
-
-Running `sudo ./run.sh` is also supported when required. The installer uses `SUDO_UID` and `SUDO_GID` for Deluge's runtime user instead of silently configuring Deluge as UID 0.
+The installer creates the required runtime paths and ownership itself. Do not prepare `/opt`, `/srv` or numeric UID/GID values manually.
 
 ### Start Torrentflix
 
@@ -90,37 +90,37 @@ Running `sudo ./run.sh` is also supported when required. The installer uses `SUD
 ./run.sh
 ```
 
-The root launcher asks what you want to install:
+The launcher first asks where Torrentflix will run:
 
 ```text
 Torrentflix
 
-What would you like to install?
+Select installation mode.
 
-1. Deluge
-   Download files with magnet links or torrent files.
-2. Plex
-   Stream your media library on your server.
+1. VPS (Public Server)
+2. Home Server (LAN Only)
+3. Local (macOS/Linux)
 
 ?:
 ```
 
+It then asks whether to install Deluge or Plex. Plex is available only in the two server modes; Local mode is deliberately Deluge-only.
+
 ### Deluge
 
-Choose **Deluge** in the root menu. The installer then opens a simple deployment menu:
+Choose **Deluge** after selecting the installation mode:
 
 ```text
-Torrentflix Deluge
+Torrentflix
 
-Select deployment mode.
+Select installation mode.
 
-1. VPS / public HTTPS access
-   Requires a domain pointing to this VPS and open ports 80/443.
-   Bundled Nginx obtains and renews the Let's Encrypt certificate.
-2. LAN / local network access
-   No domain and no Nginx required. Open http://SERVER_IP:8112.
-3. macOS / Docker Desktop
-   No root access, domain, or Nginx required. Open http://localhost:8112.
+1. VPS (Public Server)
+   Requires a domain and open ports 80/443.
+2. Home Server (LAN Only)
+   No domain or public Nginx. Open http://SERVER_IP:8112.
+3. Local (macOS/Linux)
+   No root access or domain. Open http://localhost:8112.
 
 ?:
 ```
@@ -129,15 +129,18 @@ The real terminal menu uses the same Nitka-style colors as the rest of the insta
 
 The installer offers:
 
-1. **VPS / public HTTPS** — asks for one hostname, needs it pointing to the VPS and open ports `80` and `443`. The certificate and URL use exactly that hostname; no `www` name is added.
-2. **LAN / local network** — no domain required; open port `8112` locally.
-3. **macOS / Docker Desktop** — no root access or domain; files stay under `$HOME/Downloads/deluge` and WebUI is at `http://localhost:8112`.
+1. **VPS (Public Server)** — asks for one hostname, needs it pointing to the server and open ports `80` and `443`. The certificate and URL use exactly that hostname; no `www` name is added.
+2. **Home Server (LAN Only)** — no domain required; open port `8112` from the local network.
+3. **Local (macOS/Linux)** — no root access or domain; files stay under `$HOME/torrentflix` and WebUI is at `http://localhost:8112`.
 
-If a Torrentflix stack is already running, the installer offers `Install` or `Delete`. Install keeps configuration, password and downloads. Delete requires typing `DELETE` and removes the runtime directory.
+If a Torrentflix stack is already running, the installer offers `Install` or
+`Delete`. Install keeps configuration, password and downloads. Delete requires
+typing `DELETE`; server media under `/srv/torrentflix` is preserved, and Local
+mode offers a separate choice for keeping or removing local downloads.
 
 ### Plex
 
-Choose **Plex** in the root menu and enter the media directory.
+Choose **Plex** after selecting VPS or Home Server mode and enter the media directory.
 
 Plex asks for the optional claim token and media directory:
 
@@ -145,7 +148,7 @@ Plex asks for the optional claim token and media directory:
 Torrentflix Plex
 
 Plex claim token (optional):
-Media directory [/mnt/plexmedia]:
+Media directory [/srv/torrentflix/media]:
 ```
 
 Choose a local directory or a host-mounted NAS directory for media. Plex is available at:
@@ -164,8 +167,8 @@ VPS HSTS defaults to `max-age=63072000` for the selected hostname. `includeSubDo
 - a Deluge `2.2.0` image pinned by digest with the dark WebUI theme;
 - a random WebUI password stored with permissions `600`;
 - a read-only container root filesystem;
-- safer defaults for VPS, LAN and macOS use;
-- optional Plex deployment for a local network or VPS, using a versioned image pinned by digest.
+- safer defaults for VPS, Home Server and Local use;
+- Plex deployment for a Home Server or VPS, using a versioned image pinned by digest.
 
 Torrentflix is intentionally small: it does not include Sonarr, Radarr, Prowlarr, automatic searching, renaming, importing or media orchestration. Deluge downloads files and Plex serves the library you give it.
 
@@ -192,45 +195,104 @@ Torrentflix reduces the impact of a problem with Docker isolation, a random WebU
 
 | Platform | Project | Default downloads | WebUI |
 |---|---|---|---|
-| Linux VPS/LAN | `/opt/deluge` | `/mnt/downloads` | `http://SERVER_IP:8112` |
-| macOS | `$HOME/Downloads/deluge` | `$HOME/Downloads/deluge/downloads` | `http://localhost:8112` |
-| Plex Linux | `/opt/plex` | `/mnt/plexmedia` | `http://SERVER_IP:32400/web` |
+| VPS/Home Server | `/opt/torrentflix` | `/srv/torrentflix/downloads` | `https://HOSTNAME/deluge/` or `http://SERVER_IP:8112` |
+| Local macOS/Linux | `$HOME/torrentflix` | `$HOME/torrentflix/downloads` | `http://localhost:8112` |
+| Plex server | `/opt/torrentflix` | `/srv/torrentflix/media` | `http://SERVER_IP:32400/web` |
 
-LAN and macOS Deluge use:
+### Deployment and identity model
 
-```bash
-docker compose --env-file /opt/deluge/.env -f /opt/deluge/compose.yml ps
-docker compose --env-file /opt/deluge/.env -f /opt/deluge/compose.yml logs -f deluge
-docker compose --env-file /opt/deluge/.env -f /opt/deluge/compose.yml down
+The server layout separates application/configuration files from media data.
+The installer owns the setup; users should not need to create these
+directories or enter numeric UID/GID values manually.
+
+```text
+/opt/torrentflix/              application and service configuration
+    compose/
+    deluge/config/
+    plex/config/
+
+/srv/torrentflix/              persistent downloads and media
+    downloads/
+    media/
 ```
 
-On macOS, use `$HOME/Downloads/deluge` instead of `/opt/deluge`.
+| Mode | Intended host | Installer | Container identity | Network model |
+|---|---|---|---|---|
+| **VPS (Public Server)** | Remote Linux server | root | Deluge `10001:10000`, Plex `10002:10000` | HTTPS through bundled Nginx |
+| **Home Server (LAN Only)** | Always-on Linux home server/NAS | root | Deluge `10001:10000`, Plex `10002:10000` | Direct LAN access; no public Nginx required |
+| **Local (macOS/Linux)** | Personal workstation | local user | Deluge inherits the local user UID/GID; Plex is not installed | localhost or local network |
+
+The VPS and Home Server modes use separate service UIDs and one shared media
+group. Deluge and Plex therefore share access to media data without sharing
+their private configuration directories. The host does not need `deluge` or
+`plex` accounts for these numeric identities to work.
+
+The Local mode is intentionally different: Deluge uses the current user's
+UID/GID so files created through Docker remain naturally accessible to that
+user. Plex is a server-only component and is not part of the Local mode. The
+login user on a server is an administrator, not a service identity, and must
+not change the VPS/Home Server ownership model.
+
+```text
+VPS / Home Server:
+    root installer
+        ├── Deluge 10001:10000
+        └── Plex   10002:10000
+
+Local macOS/Linux:
+    local user 1234:1234
+        └── Deluge 1234:1234
+```
+
+The network distinction is separate from the ownership model:
+
+```text
+VPS          Internet → Nginx HTTPS → Deluge
+Home Server  LAN → Deluge:8112
+Local        localhost/LAN → Deluge:8112
+```
+
+Home Server Deluge uses:
+
+```bash
+docker compose --env-file /opt/torrentflix/compose/.env \
+  -f /opt/torrentflix/compose/compose.yml ps
+docker compose --env-file /opt/torrentflix/compose/.env \
+  -f /opt/torrentflix/compose/compose.yml logs -f deluge
+docker compose --env-file /opt/torrentflix/compose/.env \
+  -f /opt/torrentflix/compose/compose.yml down
+```
+
+On Local macOS/Linux, use `$HOME/torrentflix/compose` instead of
+`/opt/torrentflix/compose`.
 
 If you enabled an incoming peer port during installation, include the generated
 override file in every manual Compose command:
 
 ```bash
-docker compose --env-file /opt/deluge/.env \
-  -f /opt/deluge/compose.yml \
-  -f /opt/deluge/compose.peer.yml ps
+docker compose --env-file /opt/torrentflix/compose/.env \
+  -f /opt/torrentflix/compose/compose.yml \
+  -f /opt/torrentflix/compose/compose.peer.yml ps
 ```
 
-Use the same extra `-f /opt/deluge/compose.peer.yml` with `logs`, `up` and
-`down`. On macOS, replace `/opt/deluge` with `$HOME/Downloads/deluge`.
+Use the same extra `-f /opt/torrentflix/compose/compose.peer.yml` with `logs`,
+`up` and `down`. On Local, replace `/opt/torrentflix` with `$HOME/torrentflix`.
 
 VPS mode uses one Compose project for Deluge and Nginx:
 
 ```bash
-docker compose --env-file /opt/deluge/.env -f /opt/deluge/compose.vps.yml ps
-docker compose --env-file /opt/deluge/.env -f /opt/deluge/compose.vps.yml down
+docker compose --env-file /opt/torrentflix/compose/.env \
+  -f /opt/torrentflix/compose/compose.vps.yml ps
+docker compose --env-file /opt/torrentflix/compose/.env \
+  -f /opt/torrentflix/compose/compose.vps.yml down
 ```
 
 When a peer port is enabled in VPS mode, add the same generated override:
 
 ```bash
-docker compose --env-file /opt/deluge/.env \
-  -f /opt/deluge/compose.vps.yml \
-  -f /opt/deluge/compose.peer.yml ps
+docker compose --env-file /opt/torrentflix/compose/.env \
+  -f /opt/torrentflix/compose/compose.vps.yml \
+  -f /opt/torrentflix/compose/compose.peer.yml ps
 ```
 
 The named ACME volume `torrentflix_nginx_acme_state` is created automatically by Compose. Nginx proxies to the Docker service `deluge:8112`. In VPS mode Deluge port `8112` is not published on the host at all; the installer performs its WebUI check and password bootstrap from inside the Docker network.
@@ -240,20 +302,20 @@ The named ACME volume `torrentflix_nginx_acme_state` is created automatically by
 Mount SMB/CIFS or NFS on the Docker host, then give the installer the mount point. Do not mount the NAS from inside the container.
 
 ```text
-NAS share -> host mount (/mnt/downloads) -> Deluge (/downloads)
-NAS share -> host mount (/mnt/plexmedia) -> Plex (/mnt/plexmedia)
+NAS share -> host mount (/srv/torrentflix/downloads) -> Deluge (/downloads)
+NAS share -> host mount (/srv/torrentflix/media) -> Plex (/mnt/plexmedia)
 ```
 
 Example SMB/CIFS entry with fictional values:
 
 ```fstab
-//192.0.2.50/media /mnt/downloads cifs vers=3.1.1,username=deluge-nas,password=ChangeThisExamplePassword,iocharset=utf8,file_mode=0770,dir_mode=0770,noperm,_netdev,x-systemd.automount 0 0
+//192.0.2.50/media /srv/torrentflix/downloads cifs vers=3.1.1,username=deluge-nas,password=ChangeThisExamplePassword,iocharset=utf8,file_mode=0770,dir_mode=0770,noperm,_netdev,x-systemd.automount 0 0
 ```
 
 Example NFS entry with fictional values:
 
 ```fstab
-192.0.2.60:/export/media /mnt/downloads nfs4 rw,_netdev,noatime,x-systemd.automount,x-systemd.requires=network-online.target 0 0
+192.0.2.60:/export/media /srv/torrentflix/downloads nfs4 rw,_netdev,noatime,x-systemd.automount,x-systemd.requires=network-online.target 0 0
 ```
 
 ### VPS without mounting the NAS
@@ -262,8 +324,8 @@ Completed files can be sent to a home server over SSH:
 
 ```bash
 rsync -a --partial --append-verify --remove-source-files --info=progress2 \
-  /mnt/downloads/completed/ user@home-server:/srv/media/completed/
-find /mnt/downloads/completed -type d -empty -delete
+  /srv/torrentflix/downloads/completed/ user@home-server:/srv/media/completed/
+find /srv/torrentflix/downloads/completed -type d -empty -delete
 ```
 
 Do not use `--remove-source-files` until you have confirmed that completed torrents no longer need to seed.
@@ -272,7 +334,7 @@ Do not use `--remove-source-files` until you have confirmed that completed torre
 
 - Do not expose Deluge port `8112` directly to the public Internet.
 - VPS mode publishes HTTPS through Nginx and does not publish Deluge port `8112` on the host.
-- macOS mode binds the WebUI to localhost through Docker Desktop.
+- Local mode binds the WebUI to localhost through Docker Desktop or the local Docker engine.
 - Port `6881` is for incoming BitTorrent traffic and remains internal by default; the installer can explicitly publish a separate host peer port.
 - In VPS mode, Deluge WebUI port `8112` is also internal; bundled Nginx is the only public entry point.
 - Docker isolation reduces risk but does not replace host updates, backups or careful handling of downloaded files.

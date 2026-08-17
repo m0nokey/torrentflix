@@ -22,6 +22,20 @@ jobs:
           docker compose -f deluge/compose.yml config --quiet
           docker compose -f deluge/compose.vps.yml config --quiet
           docker compose -f plex/compose.yml config --quiet
+          vps_rendered="$(docker compose -f deluge/compose.vps.yml config)"
+          grep -q 'PUID: "10001"' <<< "$vps_rendered"
+          grep -q 'PGID: "10000"' <<< "$vps_rendered"
+
+          local_rendered="$(DELUGE_UID=1234 DELUGE_GID=1234 docker compose \
+            -f deluge/compose.yml config)"
+          grep -q 'PUID: "1234"' <<< "$local_rendered"
+          grep -q 'PGID: "1234"' <<< "$local_rendered"
+
+          plex_rendered="$(PLEX_UID=10002 PLEX_GID=10000 docker compose \
+            -f plex/compose.yml config)"
+          grep -q 'PLEX_UID: "10002"' <<< "$plex_rendered"
+          grep -q 'PLEX_GID: "10000"' <<< "$plex_rendered"
+
           PEER_PORT=51413 docker compose \
             -f deluge/compose.yml -f deluge/compose.peer.yml config --quiet
           PEER_PORT=51413 docker compose \
