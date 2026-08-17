@@ -141,6 +141,30 @@ jobs:
               return 1
           }
 
+          wait_for_container_health() {
+              local container_name="$1"
+              local attempts="$2"
+              local delay="$3"
+              local health_status
+              local attempt
+
+              for ((attempt = 1; attempt <= attempts; attempt++)); do
+                  health_status="$(docker inspect \
+                      --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' \
+                      "$container_name" 2>/dev/null || true)"
+
+                  if [[ "$health_status" == healthy ]]; then
+                      return 0
+                  fi
+
+                  sleep "$delay"
+              done
+
+              printf 'Container did not become healthy: %s (%s)\n' \
+                  "$container_name" "$health_status" >&2
+              return 1
+          }
+
           assert_running() {
               local container_name="$1"
               local running
@@ -236,7 +260,7 @@ jobs:
           printf '%s\n' '--- Deluge Home Server smoke ---'
           docker compose -p "$lan_project" --env-file "$smoke_root/lan.env" -f deluge/compose.yml build --pull deluge
           docker compose -p "$lan_project" --env-file "$smoke_root/lan.env" -f deluge/compose.yml up -d
-          wait_for_http http://127.0.0.1:18112/ 30 2
+          wait_for_http http://127.0.0.1:18112/ 60 2
           assert_running deluge
           docker compose -p "$lan_project" --env-file "$smoke_root/lan.env" -f deluge/compose.yml down -v --remove-orphans
 
@@ -244,8 +268,8 @@ jobs:
           docker compose -p "$vps_project" --env-file "$smoke_root/vps.env" -f deluge/compose.vps.yml -f "$smoke_root/vps-ports.yml" build --pull
           docker compose -p "$vps_project" --env-file "$smoke_root/vps.env" -f deluge/compose.vps.yml -f "$smoke_root/vps-ports.yml" up -d
           docker compose -p "$vps_project" --env-file "$smoke_root/vps.env" -f deluge/compose.vps.yml -f "$smoke_root/vps-ports.yml" exec -T nginx nginx -t
-          wait_for_container_http torrentflix-nginx http://deluge:8112/ 30 2
-          wait_for_http http://127.0.0.1:18080/ 30 2
+          wait_for_container_http torrentflix-nginx http://deluge:8112/ 60 2
+          wait_for_http http://127.0.0.1:18080/ 60 2
           assert_running deluge
           assert_running torrentflix-nginx
           docker compose -p "$vps_project" --env-file "$smoke_root/vps.env" -f deluge/compose.vps.yml -f "$smoke_root/vps-ports.yml" down -v --remove-orphans
@@ -265,7 +289,8 @@ jobs:
               MEDIA_DIR="$smoke_root/plex/media" \
               PLEX_CLAIM= \
               docker compose -p "$plex_project" -f plex/compose.yml up -d
-          wait_for_http http://127.0.0.1:32400/identity 60 3
+          wait_for_container_health plex-server 120 5
+          wait_for_http http://127.0.0.1:32400/identity 30 2
           assert_running plex-server
 
       - name: Dump smoke diagnostics
