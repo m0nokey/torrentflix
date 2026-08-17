@@ -1,0 +1,53 @@
+{
+    "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+    "extends": [
+        "config:recommended",
+        "helpers:pinGitHubActionDigests"
+    ],
+    "dependencyDashboard": true,
+    "labels": [
+        "dependencies"
+    ],
+    "prConcurrentLimit": 5,
+    "prHourlyLimit": 2,
+    "rebaseWhen": "conflicted",
+    "prCreation": "immediate",
+    "customManagers": [
+        {
+            "customType": "regex",
+            "description": "Update pinned Alpine Nginx packages",
+            "managerFilePatterns": ["/(^|/)Dockerfile$/"],
+            "matchStrings": [
+                "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+) versioning=(?<versioning>\\S+)\\nARG NGINX_PACKAGE_VERSION=(?<currentValue>[^\\n]+)",
+                "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+) versioning=(?<versioning>\\S+)\\nARG NGINX_ACME_PACKAGE_VERSION=(?<currentValue>[^\\n]+)"
+            ],
+            "versioningTemplate": "{{{versioning}}}"
+        }
+    ],
+    "packageRules": [
+        {
+            "description": "Group GitHub Actions maintenance",
+            "matchManagers": ["github-actions"],
+            "groupName": "GitHub Actions"
+        },
+        {
+            "description": "Automerge stable Docker and action maintenance",
+            "matchUpdateTypes": ["digest", "patch", "minor"],
+            "automerge": true,
+            "automergeType": "pr",
+            "platformAutomerge": true,
+            "minimumReleaseAge": "3 days"
+        },
+        {
+            "description": "Give minor releases a longer cooling period",
+            "matchUpdateTypes": ["minor"],
+            "minimumReleaseAge": "7 days"
+        },
+        {
+            "description": "Major updates always require review",
+            "matchUpdateTypes": ["major"],
+            "automerge": false,
+            "minimumReleaseAge": "7 days"
+        }
+    ]
+}

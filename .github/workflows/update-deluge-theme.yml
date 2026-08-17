@@ -1,0 +1,47 @@
+name: Update Deluge theme pin
+
+on:
+    schedule:
+        - cron: '17 4 * * 1'
+    workflow_dispatch:
+
+permissions:
+    contents: write
+    pull-requests: write
+
+jobs:
+    update-theme:
+        runs-on: ubuntu-24.04
+        steps:
+            - name: Check out repository
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 0
+
+            - name: Update pinned theme commit and checksum
+              run: scripts/update-deluge-theme.sh
+
+            - name: Create maintenance pull request
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  if git diff --quiet; then
+                      printf '%s\n' 'The pinned theme is already current.'
+                      exit 0
+                  fi
+
+                  branch_name='maintenance/update-deluge-theme'
+                  git config user.name 'github-actions[bot]'
+                  git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+                  git switch -c "$branch_name"
+                  git add run.sh .github/workflows/ci.yml
+                  git commit -m 'chore: update pinned Deluge theme'
+                  git push --force-with-lease origin "$branch_name"
+
+                  if ! gh pr list --head "$branch_name" --state open --json number --jq 'length' | grep -qx '1'; then
+                      gh pr create \
+                          --base main \
+                          --head "$branch_name" \
+                          --title 'chore: update pinned Deluge theme' \
+                          --body 'Automated theme commit and SHA-256 update. Normal CI remains the merge gate.'
+                  fi

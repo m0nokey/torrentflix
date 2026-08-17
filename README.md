@@ -225,6 +225,19 @@ write its database, cache and transcode data.
 This project is intentionally not an *arr stack: it does not automatically
 search, rename, import or orchestrate media through Sonarr/Radarr/Prowlarr.
 
+## Dependency maintenance
+
+Dependency updates are maintained automatically by Renovate. Docker images stay
+pinned to immutable version-and-digest references, and GitHub Actions stay
+pinned to full commit SHAs. Digest, patch and minor updates are tested by CI
+and may be merged automatically after a short release-age cooldown. Major
+updates require review.
+
+The installer never resolves `latest` or searches for dependencies at runtime.
+The scheduled maintenance workflow also checks the pinned Deluge theme commit
+and SHA-256, then opens a normal pull request when the upstream artifact
+changes.
+
 ## Credits and license notes
 
 The dark WebUI theme is created and maintained by [Joelacus](https://github.com/joelacus)

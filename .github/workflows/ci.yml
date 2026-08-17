@@ -9,13 +9,20 @@ permissions:
 
 jobs:
   validate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: ShellCheck
-        run: shellcheck --severity=error run.sh
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          while IFS= read -r -d '' script_file; do
+              shellcheck --severity=error "$script_file"
+              bash -n "$script_file"
+          done < <(find . -type f -name '*.sh' -not -path './.git/*' -print0)
 
       - name: Validate Compose files
         run: |
@@ -47,7 +54,7 @@ jobs:
           ! grep -Eq 'published: (6881|[0-9]+).*target: 6881|target: 6881.*published:' <<< "$vps_rendered"
 
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: validate
     steps:
       - name: Check out repository
