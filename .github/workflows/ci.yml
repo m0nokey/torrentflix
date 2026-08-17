@@ -293,4 +293,8 @@ jobs:
           docker compose -p torrentflix-smoke-vps --env-file "$smoke_root/vps.env" -f deluge/compose.vps.yml -f "$smoke_root/vps-ports.yml" down -v --remove-orphans
           docker compose -p torrentflix-smoke-plex -f plex/compose.yml down -v --remove-orphans
           docker rm -f deluge torrentflix-nginx plex-server 2>/dev/null || true
-          rm -rf -- "$smoke_root" deluge/theme deluge/nginx/conf.d.runtime deluge/nginx/www
+          sudo rm -rf -- \
+              "$smoke_root" \
+              deluge/theme \
+              deluge/nginx/conf.d.runtime \
+              deluge/nginx/www
