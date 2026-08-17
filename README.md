@@ -201,7 +201,8 @@ seed.
 
 The menu includes uninstall. Configuration is removed by default while
 downloads and media are preserved. Removing managed downloads requires typing
-`DELETE` exactly. Invalid menu choices and confirmations are requested again.
+`y` at the confirmation prompt. Entering `n` or pressing Enter preserves the
+downloads. Invalid menu choices and confirmations are requested again.
 External download and media paths are never removed.
 
 The installer uses exact allowlisted paths, `.torrentflix-managed` marker files

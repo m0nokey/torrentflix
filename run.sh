@@ -954,14 +954,21 @@ confirm_deluge_download_deletion() {
         printf '%sTorrentflix%s\n\n' "$LINE" "$RESET"
         printf '%s\n\n' 'Permanent download removal'
         printf '%b%s%b\n\n' "$MUTED" 'This permanently deletes managed downloaded files.' "$RESET"
-        read -r -p 'Type DELETE to continue: ' delete_confirmation
+        printf 'Are you sure you want to delete downloaded files? [y/N]\n\n'
+        read -r -p '?: ' delete_confirmation
 
-        if [[ "$delete_confirmation" == DELETE ]]; then
-            return
-        fi
-
-        printf '%s\n' '[!] Confirmation must be exactly DELETE'
-        sleep 1
+        case "$delete_confirmation" in
+            y|Y)
+                return 0
+                ;;
+            n|N|'')
+                return 1
+                ;;
+            *)
+                printf '%s\n' '[!] Please answer y or n'
+                sleep 1
+                ;;
+        esac
     done
 }
 
@@ -996,9 +1003,12 @@ uninstall_deluge() {
     prompt_deluge_uninstall_choice
 
     if [[ "$DELETE_CHOICE" == 2 && "$DOWNLOAD_MANAGED" == true ]]; then
-        confirm_deluge_download_deletion
-        safe_delete_root "$DOWNLOAD_DIR" downloads
-        rm -rf -- "$DOWNLOAD_DIR"
+        if confirm_deluge_download_deletion; then
+            safe_delete_root "$DOWNLOAD_DIR" downloads
+            rm -rf -- "$DOWNLOAD_DIR"
+        else
+            printf '%s\n' '[+] Downloaded files preserved'
+        fi
     fi
 
     if [[ "$MODE" == local ]]; then
