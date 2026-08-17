@@ -12,42 +12,100 @@
     "prHourlyLimit": 2,
     "rebaseWhen": "conflicted",
     "prCreation": "immediate",
-    "customManagers": [
-        {
-            "customType": "regex",
-            "description": "Update pinned Alpine Nginx packages",
-            "managerFilePatterns": ["/(^|/)Dockerfile$/"],
-            "matchStrings": [
-                "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+) versioning=(?<versioning>\\S+)\\nARG NGINX_PACKAGE_VERSION=(?<currentValue>[^\\n]+)",
-                "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+) versioning=(?<versioning>\\S+)\\nARG NGINX_ACME_PACKAGE_VERSION=(?<currentValue>[^\\n]+)"
-            ],
-            "versioningTemplate": "{{{versioning}}}"
-        }
-    ],
     "packageRules": [
         {
-            "description": "Group GitHub Actions maintenance",
-            "matchManagers": ["github-actions"],
-            "groupName": "GitHub Actions"
-        },
-        {
-            "description": "Automerge stable Docker and action maintenance",
-            "matchUpdateTypes": ["digest", "patch", "minor"],
+            "description": "Automerge Docker digest updates after cooldown",
+            "matchManagers": [
+                "docker-compose",
+                "dockerfile"
+            ],
+            "matchUpdateTypes": [
+                "digest"
+            ],
+            "minimumReleaseAge": "3 days",
             "automerge": true,
             "automergeType": "pr",
-            "platformAutomerge": true,
-            "minimumReleaseAge": "3 days"
+            "platformAutomerge": true
         },
         {
-            "description": "Give minor releases a longer cooling period",
-            "matchUpdateTypes": ["minor"],
-            "minimumReleaseAge": "7 days"
+            "description": "Automerge Docker patch updates after cooldown",
+            "matchManagers": [
+                "docker-compose",
+                "dockerfile"
+            ],
+            "matchUpdateTypes": [
+                "patch"
+            ],
+            "minimumReleaseAge": "7 days",
+            "automerge": true,
+            "automergeType": "pr",
+            "platformAutomerge": true
         },
         {
-            "description": "Major updates always require review",
-            "matchUpdateTypes": ["major"],
+            "description": "Automerge normal Docker minor updates after cooldown",
+            "matchManagers": [
+                "docker-compose",
+                "dockerfile"
+            ],
+            "matchUpdateTypes": [
+                "minor"
+            ],
+            "minimumReleaseAge": "14 days",
+            "automerge": true,
+            "automergeType": "pr",
+            "platformAutomerge": true
+        },
+        {
+            "description": "Alpine minor upgrades require manual approval",
+            "matchDatasources": [
+                "docker"
+            ],
+            "matchPackageNames": [
+                "alpine"
+            ],
+            "matchUpdateTypes": [
+                "minor",
+                "major"
+            ],
+            "minimumReleaseAge": "14 days",
             "automerge": false,
-            "minimumReleaseAge": "7 days"
+            "dependencyDashboardApproval": true
+        },
+        {
+            "description": "Automerge GitHub Actions digest and patch updates",
+            "matchManagers": [
+                "github-actions"
+            ],
+            "matchUpdateTypes": [
+                "digest",
+                "patch"
+            ],
+            "minimumReleaseAge": "7 days",
+            "automerge": true,
+            "automergeType": "pr",
+            "platformAutomerge": true
+        },
+        {
+            "description": "Automerge GitHub Actions minor updates after cooldown",
+            "matchManagers": [
+                "github-actions"
+            ],
+            "matchUpdateTypes": [
+                "minor"
+            ],
+            "minimumReleaseAge": "14 days",
+            "automerge": true,
+            "automergeType": "pr",
+            "platformAutomerge": true
+        },
+        {
+            "description": "Major updates require Dependency Dashboard approval",
+            "matchUpdateTypes": [
+                "major"
+            ],
+            "minimumReleaseAge": "14 days",
+            "automerge": false,
+            "dependencyDashboardApproval": true
         }
     ]
 }

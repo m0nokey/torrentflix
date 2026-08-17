@@ -238,6 +238,17 @@ The scheduled maintenance workflow also checks the pinned Deluge theme commit
 and SHA-256, then opens a normal pull request when the upstream artifact
 changes.
 
+The CI workflow has three stable checks:
+
+```text
+validate → build → smoke
+```
+
+The `smoke` check starts Deluge, the VPS Nginx-to-Deluge stack and Plex, then
+checks their minimum HTTP readiness and container stability. Configure
+`validate`, `build` and `smoke` as required checks in the `main` branch ruleset.
+Renovate must pass the same checks and must not bypass the ruleset.
+
 ## Credits and license notes
 
 The dark WebUI theme is created and maintained by [Joelacus](https://github.com/joelacus)
