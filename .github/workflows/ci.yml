@@ -69,10 +69,22 @@ jobs:
 
       - name: Validate Compose files
         run: |
-          docker compose -f deluge/compose.yml config --quiet
-          docker compose -f deluge/compose.vps.yml config --quiet
-          docker compose -f plex/compose.yml config --quiet
-          docker compose -f plex/compose.vps.yml config --quiet
+          validate_compose_file() {
+              local compose_file="$1"
+
+              if docker compose -f "$compose_file" config --quiet; then
+                  return 0
+              fi
+
+              printf '%s\n' "Compose validation failed: $compose_file" >&2
+              docker compose -f "$compose_file" config
+              return 1
+          }
+
+          validate_compose_file deluge/compose.yml
+          validate_compose_file deluge/compose.vps.yml
+          validate_compose_file plex/compose.yml
+          validate_compose_file plex/compose.vps.yml
           vps_rendered="$(docker compose -f deluge/compose.vps.yml config)"
           grep -q 'PUID: "10001"' <<< "$vps_rendered"
           grep -q 'PGID: "10000"' <<< "$vps_rendered"
