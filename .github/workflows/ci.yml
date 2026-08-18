@@ -68,55 +68,91 @@ jobs:
           done < <(find . -type f -name '*.sh' -not -path './.git/*' -print0)
 
       - name: Validate Compose files
+        shell: bash
         run: |
-          validate_compose_file() {
-              local compose_file="$1"
+          set -euo pipefail
 
-              if docker compose -f "$compose_file" config --quiet; then
+          render_compose_json() {
+              local compose_file="$1"
+              local rendered
+
+              if ! rendered="$(docker compose -f "$compose_file" config --format json 2>&1)"; then
+                  printf 'Compose validation failed: %s\n' "$compose_file" >&2
+                  printf '%s\n' "$rendered" >&2
+                  return 1
+              fi
+
+              printf '%s\n' "$rendered"
+          }
+
+          assert_compose_json() {
+              local description="$1"
+              local filter="$2"
+              local rendered="$3"
+
+              if jq --exit-status "$filter" <<< "$rendered" >/dev/null; then
+                  printf '[validate] %s: ok\n' "$description"
                   return 0
               fi
 
-              printf '%s\n' "Compose validation failed: $compose_file" >&2
-              docker compose -f "$compose_file" config
+              printf '[validate] %s: failed\n' "$description" >&2
+              jq '.' <<< "$rendered" >&2
               return 1
           }
 
-          validate_compose_file deluge/compose.yml
-          validate_compose_file deluge/compose.vps.yml
-          validate_compose_file plex/compose.yml
-          validate_compose_file plex/compose.vps.yml
-          vps_rendered="$(docker compose -f deluge/compose.vps.yml config)"
-          grep -q 'PUID: "10001"' <<< "$vps_rendered"
-          grep -q 'PGID: "10000"' <<< "$vps_rendered"
+          deluge_home="$(DELUGE_UID=1234 DELUGE_GID=1234 \
+              render_compose_json deluge/compose.yml)"
+          deluge_vps="$(render_compose_json deluge/compose.vps.yml)"
+          plex_home="$(PLEX_UID=10002 PLEX_GID=10000 \
+              render_compose_json plex/compose.yml)"
+          plex_vps="$(PLEX_UID=10002 PLEX_GID=10000 \
+              render_compose_json plex/compose.vps.yml)"
 
-          local_rendered="$(DELUGE_UID=1234 DELUGE_GID=1234 docker compose \
-            -f deluge/compose.yml config)"
-          grep -q 'PUID: "1234"' <<< "$local_rendered"
-          grep -q 'PGID: "1234"' <<< "$local_rendered"
+          assert_compose_json 'Home Server Deluge identity and networking' '
+              (.services.deluge.environment.PUID == "1234") and
+              (.services.deluge.environment.PGID == "1234") and
+              ([.services.deluge.ports[] |
+                  select((.target | tonumber) == 8112)] | length == 1) and
+              ([.services.deluge.ports[] |
+                  select((.target | tonumber) == 6881)] | length == 0) and
+              ([.services.deluge.expose[] | tostring |
+                  select(. == "6881" or . == "6881/tcp")] | length == 1) and
+              ([.services.deluge.expose[] | tostring |
+                  select(. == "6881/udp")] | length == 1)
+          ' "$deluge_home"
 
-          plex_rendered="$(PLEX_UID=10002 PLEX_GID=10000 docker compose \
-            -f plex/compose.yml config)"
-          grep -q 'PLEX_UID: "10002"' <<< "$plex_rendered"
-          grep -q 'PLEX_GID: "10000"' <<< "$plex_rendered"
-          plex_vps_rendered="$(PLEX_UID=10002 PLEX_GID=10000 docker compose \
-            -f plex/compose.vps.yml config)"
-          grep -q 'PLEX_UID: "10002"' <<< "$plex_vps_rendered"
-          grep -q 'PLEX_GID: "10000"' <<< "$plex_vps_rendered"
-          ! grep -q 'network_mode: host' <<< "$plex_vps_rendered"
-          test "$(grep -c 'target: 32400' <<< "$plex_vps_rendered")" -eq 2
-          test "$(grep -c 'published: 32400' <<< "$plex_vps_rendered")" -eq 2
-          grep -q 'protocol: tcp' <<< "$plex_vps_rendered"
-          grep -q 'protocol: udp' <<< "$plex_vps_rendered"
+          assert_compose_json 'VPS Deluge identity and internal-only networking' '
+              (.services.deluge.environment.PUID == "10001") and
+              (.services.deluge.environment.PGID == "10000") and
+              ((.services.deluge.ports // []) | length == 0) and
+              ([.services.deluge.expose[] | tostring |
+                  select(. == "8112" or . == "8112/tcp")] | length == 1) and
+              ([.services.deluge.expose[] | tostring |
+                  select(. == "6881" or . == "6881/tcp")] | length == 1) and
+              ([.services.deluge.expose[] | tostring |
+                  select(. == "6881/udp")] | length == 1)
+          ' "$deluge_vps"
 
-          lan_rendered="$(docker compose -f deluge/compose.yml config)"
-          vps_rendered="$(docker compose -f deluge/compose.vps.yml config)"
-          test "$(grep -c 'target: 6881' <<< "$lan_rendered")" -eq 0
-          test "$(grep -c 'target: 6881' <<< "$vps_rendered")" -eq 0
-          grep -q 'expose:' <<< "$lan_rendered"
-          grep -q 'expose:' <<< "$vps_rendered"
-          grep -q '/mnt/plexmedia:ro' <<< "$plex_rendered" || grep -q 'read_only: true' <<< "$plex_rendered"
-          ! grep -Eq 'published: (6881|[0-9]+).*target: 6881|target: 6881.*published:' <<< "$lan_rendered"
-          ! grep -Eq 'published: (6881|[0-9]+).*target: 6881|target: 6881.*published:' <<< "$vps_rendered"
+          assert_compose_json 'Home Server Plex identity, host networking and read-only media' '
+              (.services["plex-server"].environment.PLEX_UID == "10002") and
+              (.services["plex-server"].environment.PLEX_GID == "10000") and
+              (.services["plex-server"].network_mode == "host") and
+              ((.services["plex-server"].ports // []) | length == 0) and
+              ([.services["plex-server"].volumes[] |
+                  select(.target == "/mnt/plexmedia" and .read_only == true)] | length == 1)
+          ' "$plex_home"
+
+          assert_compose_json 'VPS Plex identity, ports and read-only media' '
+              (.services["plex-server"].environment.PLEX_UID == "10002") and
+              (.services["plex-server"].environment.PLEX_GID == "10000") and
+              ((.services["plex-server"].network_mode // "") != "host") and
+              ([.services["plex-server"].ports[] |
+                  select((.target | tonumber) == 32400 and
+                      (.published | tonumber) == 32400)] | length == 2) and
+              ([.services["plex-server"].ports[] | .protocol] | sort) == ["tcp", "udp"] and
+              ([.services["plex-server"].volumes[] |
+                  select(.target == "/mnt/plexmedia" and .read_only == true)] | length == 1)
+          ' "$plex_vps"
 
   build:
     if: needs.changes.outputs.code_changed == 'true'
@@ -138,8 +174,9 @@ jobs:
           curl -fsSL \
             'https://raw.githubusercontent.com/joelacus/deluge-web-dark-theme/dbef18e3c9a2cb0f2448d16bb95dca868f94440e/deluge_web_dark_theme.tar.gz' \
             -o "$archive"
-          test "$(sha256sum "$archive" | awk '{print $1}')" = \
-            '5c3e6a4453fb06c16bc89f3b3789f12ba56b01addc111477211cb63e93f291bb'
+          printf '%s  %s\n' \
+            '5c3e6a4453fb06c16bc89f3b3789f12ba56b01addc111477211cb63e93f291bb' \
+            "$archive" | sha256sum --check --status
           tar -xzf "$archive" -C "$theme_dir"
           cp -a "$theme_dir" deluge/theme
 
@@ -176,28 +213,39 @@ jobs:
           theme_sha256='5c3e6a4453fb06c16bc89f3b3789f12ba56b01addc111477211cb63e93f291bb'
 
           wait_for_http() {
-              local url="$1"
-              local attempts="$2"
-              local delay="$3"
+              local container_name="$1"
+              local url="$2"
+              local attempts="$3"
+              local delay="$4"
               local attempt
+              local curl_exit
               local status
 
               for ((attempt = 1; attempt <= attempts; attempt++)); do
                   if status="$(curl \
                       --silent \
                       --show-error \
+                      --connect-timeout 2 \
+                      --max-time 5 \
                       --output /dev/null \
                       --write-out '%{http_code}' \
                       "$url")"; then
-                      printf '[smoke] GET %s -> HTTP %s (attempt %s/%s)\n' \
-                          "$url" "$status" "$attempt" "$attempts"
-
-                      if [[ "$status" =~ ^[23][0-9]{2}$ ]]; then
-                          return 0
-                      fi
+                      curl_exit=0
                   else
-                      printf '[smoke] GET %s -> connection failed (attempt %s/%s)\n' \
-                          "$url" "$attempt" "$attempts"
+                      curl_exit=$?
+                  fi
+
+                  printf '[smoke] GET %s -> HTTP %s, curl exit %s (attempt %s/%s)\n' \
+                      "$url" "${status:-000}" "$curl_exit" "$attempt" "$attempts"
+
+                  if [[ "$curl_exit" -eq 0 && "$status" =~ ^[23][0-9]{2}$ ]]; then
+                      return 0
+                  fi
+
+                  if ! container_is_running "$container_name"; then
+                      printf 'Container stopped before HTTP readiness: %s\n' \
+                          "$container_name" >&2
+                      return 1
                   fi
 
                   sleep "$delay"
@@ -207,36 +255,66 @@ jobs:
           }
 
           wait_for_container_http() {
-              local container_name="$1"
-              local url="$2"
-              local attempts="$3"
-              local delay="$4"
+              local probe_container="$1"
+              local target_container="$2"
+              local url="$3"
+              local attempts="$4"
+              local delay="$5"
               local attempt
+              local curl_exit
               local status
 
               for ((attempt = 1; attempt <= attempts; attempt++)); do
-                  if status="$(docker exec "$container_name" \
+                  if status="$(docker exec "$probe_container" \
                       curl \
                       --silent \
                       --show-error \
+                      --connect-timeout 2 \
+                      --max-time 5 \
                       --output /dev/null \
                       --write-out '%{http_code}' \
                       "$url")"; then
-                      printf '[smoke] GET %s via %s -> HTTP %s (attempt %s/%s)\n' \
-                          "$url" "$container_name" "$status" "$attempt" "$attempts"
-
-                      if [[ "$status" =~ ^[23][0-9]{2}$ ]]; then
-                          return 0
-                      fi
+                      curl_exit=0
                   else
-                      printf '[smoke] GET %s via %s -> connection failed (attempt %s/%s)\n' \
-                          "$url" "$container_name" "$attempt" "$attempts"
+                      curl_exit=$?
+                  fi
+
+                  printf '[smoke] GET %s via %s -> HTTP %s, curl exit %s (attempt %s/%s)\n' \
+                      "$url" "$probe_container" "${status:-000}" "$curl_exit" \
+                      "$attempt" "$attempts"
+
+                  if [[ "$curl_exit" -eq 0 && "$status" =~ ^[23][0-9]{2}$ ]]; then
+                      return 0
+                  fi
+
+                  if ! container_is_running "$probe_container"; then
+                      printf 'Probe container stopped before HTTP readiness: %s\n' \
+                          "$probe_container" >&2
+                      return 1
+                  fi
+
+                  if ! container_is_running "$target_container"; then
+                      printf 'Target container stopped before HTTP readiness: %s\n' \
+                          "$target_container" >&2
+                      return 1
                   fi
 
                   sleep "$delay"
               done
 
               return 1
+          }
+
+          container_is_running() {
+              local container_name="$1"
+              local running
+
+              if ! running="$(docker inspect --format '{{.State.Running}}' \
+                  "$container_name" 2>/dev/null)"; then
+                  return 1
+              fi
+
+              [[ "$running" == true ]]
           }
 
           wait_for_container_health() {
@@ -247,9 +325,19 @@ jobs:
               local attempt
 
               for ((attempt = 1; attempt <= attempts; attempt++)); do
-                  health_status="$(docker inspect \
+                  if ! container_is_running "$container_name"; then
+                      printf 'Container stopped before health readiness: %s\n' \
+                          "$container_name" >&2
+                      return 1
+                  fi
+
+                  if ! health_status="$(docker inspect \
                       --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' \
-                      "$container_name" 2>/dev/null || true)"
+                      "$container_name" 2>/dev/null)"; then
+                      printf 'Unable to inspect container health: %s\n' \
+                          "$container_name" >&2
+                      return 1
+                  fi
                   printf '[smoke] %s health -> %s (attempt %s/%s)\n' \
                       "$container_name" "$health_status" "$attempt" "$attempts"
 
@@ -267,14 +355,19 @@ jobs:
 
           assert_running() {
               local container_name="$1"
+              local container_state
+              local exit_code
               local running
               local restart_count
 
-              running="$(docker inspect --format '{{.State.Running}}' "$container_name")"
-              restart_count="$(docker inspect --format '{{.RestartCount}}' "$container_name")"
+              container_state="$(docker inspect \
+                  --format '{{.State.Running}} {{.RestartCount}} {{.State.ExitCode}}' \
+                  "$container_name")"
+              read -r running restart_count exit_code <<< "$container_state"
 
               if [[ "$running" != true ]]; then
-                  printf 'Container is not running: %s\n' "$container_name" >&2
+                  printf 'Container is not running: %s (exit %s)\n' \
+                      "$container_name" "$exit_code" >&2
                   return 1
               fi
 
@@ -282,6 +375,48 @@ jobs:
                   printf 'Container restarted during smoke test: %s (%s)\n' "$container_name" "$restart_count" >&2
                   return 1
               fi
+          }
+
+          assert_published_ports() {
+              local container_name="$1"
+              local expected_ports="$2"
+              local inspected
+
+              inspected="$(docker inspect "$container_name")"
+
+              if jq --exit-status --argjson expected "$expected_ports" '
+                  ([((.[0].NetworkSettings.Ports // {}) | to_entries[]) |
+                      select(.value != null) | .key] | sort) == ($expected | sort)
+              ' <<< "$inspected" >/dev/null; then
+                  printf '[smoke] %s published ports match %s\n' \
+                      "$container_name" "$expected_ports"
+                  return 0
+              fi
+
+              printf 'Unexpected published ports for %s\n' "$container_name" >&2
+              docker port "$container_name" >&2
+              return 1
+          }
+
+          assert_read_only_mount() {
+              local container_name="$1"
+              local destination="$2"
+              local inspected
+
+              inspected="$(docker inspect "$container_name")"
+
+              if jq --exit-status --arg destination "$destination" '
+                  [.[0].Mounts[] |
+                      select(.Destination == $destination and .RW == false)] | length == 1
+              ' <<< "$inspected" >/dev/null; then
+                  printf '[smoke] %s mount %s is read-only\n' \
+                      "$container_name" "$destination"
+                  return 0
+              fi
+
+              printf 'Mount is missing or writable: %s:%s\n' \
+                  "$container_name" "$destination" >&2
+              return 1
           }
 
           prepare_theme() {
@@ -293,7 +428,8 @@ jobs:
               mkdir -p "$theme_dir"
               curl --fail --silent --show-error "$theme_url" -o "$archive_file"
 
-              if [[ "$(sha256sum "$archive_file" | awk '{print $1}')" != "$theme_sha256" ]]; then
+              if ! printf '%s  %s\n' "$theme_sha256" "$archive_file" | \
+                  sha256sum --check --status; then
                   printf '%s\n' 'Deluge theme checksum verification failed' >&2
                   return 1
               fi
@@ -322,7 +458,14 @@ jobs:
           mkdir -p "$smoke_root/lan/config" "$smoke_root/lan/downloads"
           mkdir -p "$smoke_root/vps/config" "$smoke_root/vps/downloads"
           mkdir -p "$smoke_root/plex/config" "$smoke_root/plex/transcode" "$smoke_root/plex/media"
-          chmod -R 0777 "$smoke_root"
+          sudo chown -R 1234:1234 \
+              "$smoke_root/lan" \
+              "$smoke_root/vps" \
+              "$smoke_root/plex"
+          sudo chmod -R u+rwX,go-rwx \
+              "$smoke_root/lan" \
+              "$smoke_root/vps" \
+              "$smoke_root/plex"
           prepare_theme
 
           write_deluge_env \
@@ -360,18 +503,21 @@ jobs:
           printf '%s\n' '--- Deluge Home Server smoke ---'
           docker compose -p "$lan_project" --env-file "$smoke_root/lan.env" -f deluge/compose.yml build --pull deluge
           docker compose -p "$lan_project" --env-file "$smoke_root/lan.env" -f deluge/compose.yml up -d
-          wait_for_http http://127.0.0.1:18112/ 60 2
+          wait_for_http deluge http://127.0.0.1:18112/ 60 2
           assert_running deluge
+          assert_published_ports deluge '["8112/tcp"]'
           docker compose -p "$lan_project" --env-file "$smoke_root/lan.env" -f deluge/compose.yml down -v --remove-orphans
 
           printf '%s\n' '--- Deluge VPS + Nginx smoke ---'
           docker compose -p "$vps_project" --env-file "$smoke_root/vps.env" -f deluge/compose.vps.yml -f "$smoke_root/vps-ports.yml" build --pull
           docker compose -p "$vps_project" --env-file "$smoke_root/vps.env" -f deluge/compose.vps.yml -f "$smoke_root/vps-ports.yml" up -d
           docker compose -p "$vps_project" --env-file "$smoke_root/vps.env" -f deluge/compose.vps.yml -f "$smoke_root/vps-ports.yml" exec -T nginx nginx -t
-          wait_for_container_http torrentflix-nginx http://deluge:8112/ 60 2
-          wait_for_http http://127.0.0.1:18080/ 60 2
+          wait_for_container_http torrentflix-nginx deluge http://deluge:8112/ 60 2
+          wait_for_http torrentflix-nginx http://127.0.0.1:18080/ 60 2
           assert_running deluge
           assert_running torrentflix-nginx
+          assert_published_ports deluge '[]'
+          assert_published_ports torrentflix-nginx '["443/tcp", "80/tcp"]'
           docker compose -p "$vps_project" --env-file "$smoke_root/vps.env" -f deluge/compose.vps.yml -f "$smoke_root/vps-ports.yml" down -v --remove-orphans
 
           printf '%s\n' '--- Plex smoke ---'
@@ -394,8 +540,10 @@ jobs:
               PLEX_PORT=32400 \
               docker compose -p "$plex_project" -f plex/compose.vps.yml up -d
           wait_for_container_health plex-server 120 5
-          wait_for_http http://127.0.0.1:32400/identity 30 2
+          wait_for_http plex-server http://127.0.0.1:32400/identity 30 2
           assert_running plex-server
+          assert_published_ports plex-server '["32400/tcp", "32400/udp"]'
+          assert_read_only_mount plex-server /mnt/plexmedia
 
       - name: Dump smoke diagnostics
         if: failure()
