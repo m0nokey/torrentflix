@@ -12,7 +12,8 @@ existing media path or creates its managed fallback. No manual `mkdir`,
 
 ```text
 /opt/torrentflix/plex/
-    compose.yml
+    compose.yml              # Home Server: host networking
+    compose.vps.yml          # VPS: one published port over TCP/UDP
     .env
     config/
     transcode/
@@ -22,12 +23,13 @@ existing media path or creates its managed fallback. No manual `mkdir`,
 Plex config and transcoding are private to Plex. The selected media directory
 is mounted into the container as `/mnt/plexmedia:ro`.
 
-The official Plex image is pinned to a version and registry digest. Host
-networking is intentional for Plex discovery and client compatibility, so Plex
-has a wider network view than the hardened Deluge container. Resource limits,
-`tmpfs` and `no-new-privileges` are enabled, while `read_only` and blanket
-capability removal are not used because Plex must write its database, cache and
-transcode state.
+The official Plex image is pinned to a version and registry digest. Home Server
+uses host networking for Plex discovery and client compatibility. VPS mode uses
+bridge networking and publishes only port `32400` over TCP and UDP; discovery
+ports are not published. Resource limits, `tmpfs` and `no-new-privileges` are
+enabled, while
+`read_only` and blanket capability removal are not used because Plex must write
+its database, cache and transcode state.
 
 ## Claim token
 
@@ -35,7 +37,8 @@ The installer accepts an optional short-lived token from
 [plex.tv/claim](https://www.plex.tv/claim) without echoing it. It removes the
 token from the host `.env` after the container is created.
 
-Without a token on a headless server, use the printed tunnel:
+Without a token on a headless server, use the printed tunnel when the service is
+not directly reachable:
 
 ```bash
 ssh -N -L 32400:127.0.0.1:32400 user@SERVER_IP

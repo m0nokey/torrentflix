@@ -72,6 +72,7 @@ jobs:
           docker compose -f deluge/compose.yml config --quiet
           docker compose -f deluge/compose.vps.yml config --quiet
           docker compose -f plex/compose.yml config --quiet
+          docker compose -f plex/compose.vps.yml config --quiet
           vps_rendered="$(docker compose -f deluge/compose.vps.yml config)"
           grep -q 'PUID: "10001"' <<< "$vps_rendered"
           grep -q 'PGID: "10000"' <<< "$vps_rendered"
@@ -85,6 +86,15 @@ jobs:
             -f plex/compose.yml config)"
           grep -q 'PLEX_UID: "10002"' <<< "$plex_rendered"
           grep -q 'PLEX_GID: "10000"' <<< "$plex_rendered"
+          plex_vps_rendered="$(PLEX_UID=10002 PLEX_GID=10000 docker compose \
+            -f plex/compose.vps.yml config)"
+          grep -q 'PLEX_UID: "10002"' <<< "$plex_vps_rendered"
+          grep -q 'PLEX_GID: "10000"' <<< "$plex_vps_rendered"
+          ! grep -q 'network_mode: host' <<< "$plex_vps_rendered"
+          test "$(grep -c 'target: 32400' <<< "$plex_vps_rendered")" -eq 2
+          test "$(grep -c 'published: 32400' <<< "$plex_vps_rendered")" -eq 2
+          grep -q 'protocol: tcp' <<< "$plex_vps_rendered"
+          grep -q 'protocol: udp' <<< "$plex_vps_rendered"
 
           lan_rendered="$(docker compose -f deluge/compose.yml config)"
           vps_rendered="$(docker compose -f deluge/compose.vps.yml config)"
@@ -359,14 +369,18 @@ jobs:
               PLEX_TRANSCODE_DIR="$smoke_root/plex/transcode" \
               MEDIA_DIR="$smoke_root/plex/media" \
               PLEX_CLAIM= \
-              docker compose -p "$plex_project" -f plex/compose.yml pull plex-server
+              PLEX_BIND_IP=127.0.0.1 \
+              PLEX_PORT=32400 \
+              docker compose -p "$plex_project" -f plex/compose.vps.yml pull plex-server
           PLEX_UID=1234 \
               PLEX_GID=1234 \
               PLEX_CONFIG_DIR="$smoke_root/plex/config" \
               PLEX_TRANSCODE_DIR="$smoke_root/plex/transcode" \
               MEDIA_DIR="$smoke_root/plex/media" \
               PLEX_CLAIM= \
-              docker compose -p "$plex_project" -f plex/compose.yml up -d
+              PLEX_BIND_IP=127.0.0.1 \
+              PLEX_PORT=32400 \
+              docker compose -p "$plex_project" -f plex/compose.vps.yml up -d
           wait_for_container_health plex-server 120 5
           wait_for_http http://127.0.0.1:32400/identity 30 2
           assert_running plex-server
@@ -382,8 +396,8 @@ jobs:
           docker compose -p torrentflix-smoke-lan --env-file "$smoke_root/lan.env" -f deluge/compose.yml logs --tail=200
           docker compose -p torrentflix-smoke-vps --env-file "$smoke_root/vps.env" -f deluge/compose.vps.yml -f "$smoke_root/vps-ports.yml" ps
           docker compose -p torrentflix-smoke-vps --env-file "$smoke_root/vps.env" -f deluge/compose.vps.yml -f "$smoke_root/vps-ports.yml" logs --tail=200
-          docker compose -p torrentflix-smoke-plex -f plex/compose.yml ps
-          docker compose -p torrentflix-smoke-plex -f plex/compose.yml logs --tail=200
+          docker compose -p torrentflix-smoke-plex -f plex/compose.vps.yml ps
+          docker compose -p torrentflix-smoke-plex -f plex/compose.vps.yml logs --tail=200
 
       - name: Clean up smoke resources
         if: always()
@@ -394,7 +408,7 @@ jobs:
 
           docker compose -p torrentflix-smoke-lan --env-file "$smoke_root/lan.env" -f deluge/compose.yml down -v --remove-orphans
           docker compose -p torrentflix-smoke-vps --env-file "$smoke_root/vps.env" -f deluge/compose.vps.yml -f "$smoke_root/vps-ports.yml" down -v --remove-orphans
-          docker compose -p torrentflix-smoke-plex -f plex/compose.yml down -v --remove-orphans
+          docker compose -p torrentflix-smoke-plex -f plex/compose.vps.yml down -v --remove-orphans
           docker rm -f deluge torrentflix-nginx plex-server 2>/dev/null || true
           sudo rm -rf -- \
               "$smoke_root" \

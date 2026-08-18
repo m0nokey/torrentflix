@@ -160,9 +160,11 @@ of Local mode.
 ```text
 VPS:
     Internet → Nginx HTTPS → Deluge WebUI
+    Internet → host:32400/tcp+udp → Plex
 
 Home Server:
     LAN → host:8112 → Deluge WebUI
+    LAN → host network → Plex
 
 Local:
     localhost:8112 → Deluge WebUI
@@ -228,9 +230,10 @@ reduces the filesystem and privilege impact of a compromised process.
 Torrentflix uses pinned Deluge and Plex image digests, a theme pinned to an
 upstream commit with SHA-256 verification, random WebUI credentials, a
 read-only Deluge root filesystem, reduced capabilities and resource limits.
-Plex intentionally keeps host networking for discovery and compatibility, so
-it is less isolated than Deluge; Plex is not made read-only because it needs to
-write its database, cache and transcode data.
+Plex uses host networking only in Home Server mode for discovery and client
+compatibility. VPS mode uses bridge networking and publishes only port `32400`
+over TCP and UDP; Plex is not made read-only because it needs to write its
+database, cache and transcode data.
 
 This project is intentionally not an *arr stack: it does not automatically
 search, rename, import or orchestrate media through Sonarr/Radarr/Prowlarr.

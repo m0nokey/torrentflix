@@ -804,6 +804,8 @@ install_deluge() {
 }
 
 install_plex() {
+    local plex_compose_source
+
     require_command docker
     prepare_mode_context
     assert_no_source_overlap "$PLEX_ROOT" "$DEFAULT_MEDIA_DIR"
@@ -818,7 +820,13 @@ install_plex() {
     select_media_directory
     assert_no_source_overlap "$PLEX_ROOT" "$MEDIA_DIR"
     prepare_plex_directories
-    cp "$SCRIPT_DIR/plex/compose.yml" "$PLEX_ROOT/compose.yml"
+
+    plex_compose_source="$SCRIPT_DIR/plex/compose.yml"
+    if [[ "$MODE" == vps ]]; then
+        plex_compose_source="$SCRIPT_DIR/plex/compose.vps.yml"
+    fi
+
+    cp "$plex_compose_source" "$PLEX_ROOT/compose.yml"
     write_plex_environment
 
     printf '%s\n' '[+] Starting Plex Media Server...'
@@ -831,6 +839,11 @@ install_plex() {
 
     printf '\nPlex is running.\n'
     printf '%s\n' 'WebUI:  http://SERVER_IP:32400/web'
+    if [[ "$MODE" == vps ]]; then
+        printf '%s\n' 'Network: only port 32400/tcp and 32400/udp are published'
+    else
+        printf '%s\n' 'Network: Plex uses host networking for LAN discovery'
+    fi
     printf 'Media:  %s\n' "$MEDIA_DIR"
     printf 'Config: %s\n' "$PLEX_CONFIG_DIR"
     printf '\n%s\n' 'Headless setup without a claim token:'
