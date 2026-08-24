@@ -81,14 +81,35 @@ ci_text, ci_commit_count = re.subn(
     rf"\g<1>{commit}\g<2>",
     ci_text,
 )
+ci_text, ci_variable_commit_count = re.subn(
+    r"(?m)^(\s*theme_commit=')[0-9a-f]{40}('$)",
+    rf"\g<1>{commit}\g<2>",
+    ci_text,
+)
 ci_text, ci_sha_count = re.subn(
-    r"(?m)^            '[0-9a-f]{64}'$",
-    f"            '{sha256}'",
+    r"(?m)^(\s*')[0-9a-f]{64}('(?: \\)?$)",
+    rf"\g<1>{sha256}\g<2>",
+    ci_text,
+)
+ci_text, ci_variable_sha_count = re.subn(
+    r"(?m)^(\s*theme_sha256=')[0-9a-f]{64}('$)",
+    rf"\g<1>{sha256}\g<2>",
     ci_text,
 )
 
-if (commit_count, sha_count, ci_commit_count, ci_sha_count) != (1, 1, 1, 1):
-    raise SystemExit('Expected exactly one theme pin in run.sh and CI workflow')
+counts = (
+    commit_count,
+    sha_count,
+    ci_commit_count,
+    ci_variable_commit_count,
+    ci_sha_count,
+    ci_variable_sha_count,
+)
+if counts != (1, 1, 1, 1, 1, 1):
+    raise SystemExit(
+        'Expected one theme commit and checksum in run.sh and both CI jobs; '
+        f'found {counts}'
+    )
 
 run_path.write_text(run_text)
 ci_path.write_text(ci_text)
