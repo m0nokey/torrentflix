@@ -24,6 +24,10 @@ readonly WEB_DIR='/lsiopy/lib/python3.12/site-packages/deluge/ui/web'
 readonly THEME_COMMIT='dbef18e3c9a2cb0f2448d16bb95dca868f94440e'
 readonly THEME_SHA256='5c3e6a4453fb06c16bc89f3b3789f12ba56b01addc111477211cb63e93f291bb'
 
+# Set by resolve_local_identity in Local mode. Keep it defined in server modes
+# because shared install and uninstall helpers run with `set -u` enabled.
+REAL_HOME=''
+
 die() {
     printf '[!] %s\n' "$*" >&2
     exit 1
@@ -402,6 +406,16 @@ prepare_mode_context() {
     fi
 }
 
+is_managed_download_path() {
+    local target_path="$1"
+
+    if [[ "$target_path" == "$DELUGE_ROOT/downloads" ]]; then
+        return 0
+    fi
+
+    [[ "$MODE" == local && -n "${REAL_HOME:-}" && "$target_path" == "$REAL_HOME/Downloads/torrentflix-downloads" ]]
+}
+
 prepare_deluge_directories() {
     local root_owner='root'
     local root_group='root'
@@ -465,7 +479,7 @@ select_download_directory() {
         die 'The filesystem root cannot be used as downloads'
     fi
 
-    if [[ "$DOWNLOAD_DIR" == "$DELUGE_ROOT/downloads" || "$DOWNLOAD_DIR" == "$REAL_HOME/Downloads/torrentflix-downloads" ]]; then
+    if is_managed_download_path "$DOWNLOAD_DIR"; then
         DOWNLOAD_MANAGED=true
     else
         DOWNLOAD_MANAGED=false
@@ -875,7 +889,7 @@ safe_delete_root() {
             fi
             ;;
         downloads)
-            if [[ "$target_path" != "$DELUGE_ROOT/downloads" && "$target_path" != "$REAL_HOME/Downloads/torrentflix-downloads" ]]; then
+            if ! is_managed_download_path "$target_path"; then
                 die "Path is not the managed downloads path: $target_path"
             fi
             ;;
